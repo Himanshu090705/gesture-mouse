@@ -335,6 +335,9 @@ class Controller:
     framecount = 0
     prev_hand = None
     pinch_threshold = 0.3
+    # For incremental pinch control
+    prev_pinch_x = None
+    prev_pinch_y = None
     
     def getpinchylv(hand_result):
         """returns distance beween starting pinch y coord and current hand position y coord."""
@@ -347,22 +350,24 @@ class Controller:
         return dist
     
     def changesystembrightness():
-        """sets system brightness based on 'Controller.pinchlv'."""
+        """Incrementally adjusts system brightness based on pinch movement delta."""
         currentBrightnessLv = sbcontrol.get_brightness(display=0)/100.0
-        currentBrightnessLv += Controller.pinchlv/50.0
+        # Use smaller increment for smoother control
+        currentBrightnessLv += Controller.pinchlv * 0.02
         if currentBrightnessLv > 1.0:
             currentBrightnessLv = 1.0
         elif currentBrightnessLv < 0.0:
-            currentBrightnessLv = 0.0       
-        sbcontrol.fade_brightness(int(100*currentBrightnessLv) , start = sbcontrol.get_brightness(display=0))
+            currentBrightnessLv = 0.0
+        sbcontrol.set_brightness(int(100*currentBrightnessLv), display=0)
     
     def changesystemvolume():
-        """sets system volume based on 'Controller.pinchlv'."""
+        """Incrementally adjusts system volume based on pinch movement delta."""
         devices = AudioUtilities.GetSpeakers()
         interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
         volume = cast(interface, POINTER(IAudioEndpointVolume))
         currentVolumeLv = volume.GetMasterVolumeLevelScalar()
-        currentVolumeLv += Controller.pinchlv/50.0
+        # Use smaller increment for smoother control
+        currentVolumeLv += Controller.pinchlv * 0.02
         if currentVolumeLv > 1.0:
             currentVolumeLv = 1.0
         elif currentVolumeLv < 0.0:
@@ -426,12 +431,16 @@ class Controller:
         Controller.pinchlv = 0
         Controller.prevpinchlv = 0
         Controller.framecount = 0
+        # Initialize previous position for incremental control
+        Controller.prev_pinch_x = hand_result.landmark[8].x
+        Controller.prev_pinch_y = hand_result.landmark[8].y
+        Controller.pinchdirectionflag = None
 
-    # Hold final position for 5 frames to change status
+    # Incremental pinch control - applies changes based on movement delta
     def pinch_control(hand_result, controlHorizontal, controlVertical):
         """
-        calls 'controlHorizontal' or 'controlVertical' based on pinch flags, 
-        'framecount' and sets 'pinchlv'.
+        calls 'controlHorizontal' or 'controlVertical' based on pinch movement delta.
+        Uses incremental control - changes are applied based on how much you move.
 
         Parameters
         ----------
@@ -440,40 +449,36 @@ class Controller:
         controlHorizontal : callback function assosiated with horizontal
             pinch gesture.
         controlVertical : callback function assosiated with vertical
-            pinch gesture. 
-        
+            pinch gesture.
+
         Returns
         -------
         None
         """
-        if Controller.framecount == 5:
-            Controller.framecount = 0
-            Controller.pinchlv = Controller.prevpinchlv
+        current_x = hand_result.landmark[8].x
+        current_y = hand_result.landmark[8].y
 
-            if Controller.pinchdirectionflag == True:
-                controlHorizontal() #x
+        # Calculate delta from previous position
+        delta_x = (current_x - Controller.prev_pinch_x) * 10  # Scale for sensitivity
+        delta_y = (Controller.prev_pinch_y - current_y) * 10  # Inverted for natural control
 
-            elif Controller.pinchdirectionflag == False:
-                controlVertical() #y
+        # Determine direction if not set yet (first significant movement)
+        if Controller.pinchdirectionflag is None:
+            if abs(delta_x) > 0.15 or abs(delta_y) > 0.15:
+                Controller.pinchdirectionflag = abs(delta_x) > abs(delta_y)
 
-        lvx =  Controller.getpinchxlv(hand_result)
-        lvy =  Controller.getpinchylv(hand_result)
-            
-        if abs(lvy) > abs(lvx) and abs(lvy) > Controller.pinch_threshold:
-            Controller.pinchdirectionflag = False
-            if abs(Controller.prevpinchlv - lvy) < Controller.pinch_threshold:
-                Controller.framecount += 1
-            else:
-                Controller.prevpinchlv = lvy
-                Controller.framecount = 0
-
-        elif abs(lvx) > Controller.pinch_threshold:
-            Controller.pinchdirectionflag = True
-            if abs(Controller.prevpinchlv - lvx) < Controller.pinch_threshold:
-                Controller.framecount += 1
-            else:
-                Controller.prevpinchlv = lvx
-                Controller.framecount = 0
+        # Apply control based on direction
+        if Controller.pinchdirectionflag is not None:
+            if Controller.pinchdirectionflag:  # Horizontal
+                if abs(delta_x) > 0.05:  # Minimum threshold to avoid jitter
+                    Controller.pinchlv = delta_x
+                    controlHorizontal()
+                    Controller.prev_pinch_x = current_x
+            else:  # Vertical
+                if abs(delta_y) > 0.05:  # Minimum threshold to avoid jitter
+                    Controller.pinchlv = delta_y
+                    controlVertical()
+                    Controller.prev_pinch_y = current_y
 
     def handle_controls(gesture, hand_result):  
         """Impliments all gesture functionality."""      
@@ -495,13 +500,13 @@ class Controller:
         # implementation
         if gesture == Gest.V_GEST:
             Controller.flag = True
-            pyautogui.moveTo(x, y, duration = 0.1)
+            pyautogui.moveTo(x, y, _pause=False)
 
         elif gesture == Gest.FIST:
-            if not Controller.grabflag : 
+            if not Controller.grabflag :
                 Controller.grabflag = True
                 pyautogui.mouseDown(button = "left")
-            pyautogui.moveTo(x, y, duration = 0.1)
+            pyautogui.moveTo(x, y, _pause=False)
 
         elif gesture == Gest.MID and Controller.flag:
             pyautogui.click()
@@ -644,6 +649,10 @@ class GestureController:
             return
 
         try:
+            # Create a resizable window for better visibility
+            cv2.namedWindow('Gesture Controller', cv2.WINDOW_NORMAL)
+            cv2.resizeWindow('Gesture Controller', 1280, 720)  # Set larger window size
+
             with mp_hands.Hands(max_num_hands = 2,min_detection_confidence=0.5, min_tracking_confidence=0.5) as hands:
                 while GestureController.cap.isOpened() and GestureController.gc_mode:
                     success, image = GestureController.cap.read()

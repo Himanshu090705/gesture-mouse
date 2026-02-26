@@ -785,3 +785,31 @@ python -m pip uninstall mediapipe -y
 python -m pip install mediapipe==0.10.5 protobuf==4.23.4
 If you paste the results of step 2 (and any pip output), I’ll give the exact next command and, if needed, the fix for Windows install errors. 🔧
 
+Working commands summary
+Say	Does
+proton hello	Greeting
+proton what is your name	Name
+proton date	Today's date
+proton time	Current time
+proton search [query]	Google search
+proton location	Google Maps
+proton launch gesture recognition	Starts gesture camera
+proton stop gesture recognition	Stops gesture camera
+proton list	Lists C:/ files
+proton copy	Ctrl+C
+proton paste	Ctrl+V
+proton bye	Sleep mode
+proton exit	Quit
+
+unctionality you could add
+Here are some practical additions that fit naturally into the existing structure:
+
+Command idea	What it would do
+jarvis open notepad / jarvis open calculator	os.startfile() or subprocess to launch apps
+jarvis screenshot	pyautogui.screenshot() — already have pyautogui
+jarvis scroll up/down	pyautogui.scroll()
+jarvis volume up/down/mute	pycaw — already imported in Gesture_Controller
+jarvis wikipedia [topic]	wikipedia.summary() — already imported but unused
+jarvis type [text]	pyautogui.typewrite() to dictate text
+jarvis minimize / jarvis maximize	pyautogui.hotkey('win', 'd') etc.
+jarvis lock	os.system('rundll32.exe user32.dll,LockWorkStation')
