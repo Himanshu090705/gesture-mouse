@@ -28,3 +28,6 @@ text_input_mode = False
 
 # Confirmation flow for risky actions
 pending_confirmation = None
+
+# Gesture recognition subprocess (set when launched via assistant)
+gesture_process = None

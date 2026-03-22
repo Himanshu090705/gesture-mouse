@@ -164,35 +164,7 @@
 
 ---
 
-# 📋 14. Updated Command Syntax (Short Form)
-
-## App Management
-- open app [name]
-- close app [name]
-
-## File Navigation
-- list
-- open [number]
-- back
-
-## Time & Timer
-- time
-- set timer [minutes]
-- timer [minutes]
-
-## System Info
-- cpu
-- system info
-- battery
-
-## Sleep/Wake
-- sleep
-- go to sleep
-- wake up
-
----
-
-# 📊 15. Quick Calculations
+# 📊 14. Quick Calculations
 
 - calculate [expression]
 - math [expression]
@@ -203,17 +175,62 @@ Examples:
 
 ---
 
-# 🔄 16. Unit Conversions
+# 🔄 15. Unit Conversions
 
 - convert [value] [unit] to [unit]
 
-Examples:
+## Distance
 - convert 5 km to miles
+- convert 5 miles to km
+- convert 10 meters to feet
+- convert 10 feet to meters
+- convert 2 meters to inches
+- convert 30 centimeters to inches
+- convert 5 inches to centimeters
+
+## Temperature
 - convert 25 celsius to fahrenheit
+- convert 77 fahrenheit to celsius
+
+## Weight
+- convert 70 kg to pounds
+- convert 150 pounds to kg
+- convert 100 grams to ounces
+- convert 5 ounces to grams
+
+## Volume
+- convert 2 liters to gallons
+- convert 1 gallon to liters
+- convert 250 milliliters to fluid ounces
+- convert 8 fluid ounces to milliliters
+
+## Speed
+- convert 100 km per hour to mph
+- convert 60 mph to km per hour
+
+## Data Storage
+- convert 512 megabytes to gigabytes
+- convert 2 gigabytes to megabytes
+- convert 1 gigabyte to terabytes
+- convert 1 terabyte to gigabytes
+
+## Time
+- convert 2 hours to minutes
+- convert 90 minutes to hours
+- convert 1 hour to seconds
+- convert 3600 seconds to hours
+- convert 5 minutes to seconds
+- convert 120 seconds to minutes
+
+## Currency (live rates)
+- convert 100 usd to inr
+- convert 50 eur to gbp
+- convert 1000 inr to usd
+- Supported: USD, EUR, GBP, INR, JPY, CAD, AUD, CHF, AED
 
 ---
 
-# 🌐 17. Enhanced Web Search
+# 🌐 16. Enhanced Web Search
 
 ## YouTube
 - youtube search [query]
@@ -239,7 +256,7 @@ example: define javascript
 
 ---
 
-# 🌍 18. Network Information
+# 🌍 17. Network Information
 
 - ip address
 - show ip
@@ -247,7 +264,7 @@ example: define javascript
 
 ---
 
-# 🌟 19. Motivation & Facts
+# 🌟 18. Motivation & Facts
 
 - motivational quote
 - inspire me
@@ -258,14 +275,14 @@ example: define javascript
 
 ---
 
-# 🎱 20. Magic 8 Ball
+# 🎱 19. Magic 8 Ball
 
 - magic 8 ball [question]
 - magic eight ball [question]
 
 ---
 
-# 💬 21. Social Interaction
+# 💬 20. Social Interaction
 
 - compliment me
 - say something nice
@@ -274,7 +291,7 @@ example: define javascript
 
 ---
 
-# ❓ 22. Help
+# ❓ 21. Help
 
 - help
 - commands
@@ -282,7 +299,7 @@ example: define javascript
 
 ---
 
-# 🎭 23. Personality & Easter Eggs
+# 🎭 22. Personality & Easter Eggs
 
 - quantum sing
 - quantum dance
@@ -300,7 +317,7 @@ example: define javascript
 
 ---
 
-# ⚡ 24. Power User System Utilities
+# ⚡ 23. Power User System Utilities
 
 - quantum cleanup desktop
 - quantum empty recycle bin

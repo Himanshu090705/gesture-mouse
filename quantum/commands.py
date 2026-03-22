@@ -19,7 +19,9 @@ from threading import Thread
 from difflib import get_close_matches
 from pynput.keyboard import Key, Controller as KeyboardController
 
-import Gesture_Controller
+import subprocess as _subprocess
+import os as _os
+_GESTURE_SCRIPT = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'Gesture_Controller.py')
 import app
 
 import quantum.state as state
@@ -83,8 +85,18 @@ def fuzzy_match(input_text):
     if not words:
         return input_text
 
-    # Try to match first N words against multi-word commands (longest first)
     sorted_commands = sorted(command_keywords, key=len, reverse=True)
+
+    # Pass 1: Exact prefix match — return unchanged if input already starts with a valid command
+    for cmd in sorted_commands:
+        cmd_words = cmd.split()
+        if len(cmd_words) > 1 and len(words) >= len(cmd_words):
+            if ' '.join(words[:len(cmd_words)]) == cmd:
+                return input_text
+    if len(words) == 1 and words[0] in [kw for kw in command_keywords if ' ' not in kw]:
+        return input_text
+
+    # Pass 2: Fuzzy matching — try to correct typos
     for cmd in sorted_commands:
         cmd_words = cmd.split()
         if len(cmd_words) > 1 and len(words) >= len(cmd_words):
@@ -129,10 +141,12 @@ def respond(voice_data):
         reply('Cancelled. No action was taken.')
         return
 
-    # Strip assistant name prefix (case-insensitive)
+    # Strip assistant name prefix (case-insensitive, prefix only)
     voice_data_lower = voice_data.lower()
     for name in ['quantum', 'proton', 'jarvis', state.assistant_name.lower()]:
-        voice_data_lower = voice_data_lower.replace(name, '')
+        if voice_data_lower.startswith(name):
+            voice_data_lower = voice_data_lower[len(name):].strip()
+            break
     voice_data = voice_data_lower.strip()
 
     # Apply fuzzy matching to correct typos
@@ -147,10 +161,23 @@ def respond(voice_data):
     if state.is_awake == False:
         if 'wake up' in voice_data or 'wakeup' in voice_data or 'wake' in voice_data:
             state.is_awake = True
+            app.eel.setAwakeStatus(True)()
             reply("I'm awake now!")
             from quantum.audio_io import wish
             wish()
         return
+
+    # -----------------------------------------------------------------------
+    # TEXT INPUT  (must come before 'hello' so "type hello …" isn't intercepted)
+    # -----------------------------------------------------------------------
+    elif voice_data.startswith('type '):
+        text_to_type = voice_data[5:].strip()
+        if text_to_type:
+            time.sleep(2)
+            pyautogui.typewrite(text_to_type, interval=0.1)
+            reply(f"Typed: {text_to_type}")
+        else:
+            reply("What should I type?")
 
     # -----------------------------------------------------------------------
     # BASIC COMMANDS
@@ -190,7 +217,8 @@ def respond(voice_data):
             reply("I couldn't set the timer. Try 'set timer 5'")
 
     elif 'time' in voice_data:
-        reply(str(datetime.datetime.now()).split(" ")[1].split('.')[0])
+        now = datetime.datetime.now()
+        reply(f"{now.hour} hours {now.minute} minutes and {now.second} seconds")
 
     elif 'search' in voice_data and 'youtube' not in voice_data and 'github' not in voice_data and 'stackoverflow' not in voice_data:
         query = voice_data.split('search')[1]
@@ -217,10 +245,12 @@ def respond(voice_data):
     elif ('bye' in voice_data) or ('by' in voice_data) or ('sleep' in voice_data) or ('go to sleep' in voice_data):
         reply(f"Good bye! Going to sleep mode. Say '{state.assistant_name} wake up' to wake me again.")
         state.is_awake = False
+        app.eel.setAwakeStatus(False)()
 
     elif ('exit' in voice_data) or ('terminate' in voice_data):
-        if Gesture_Controller.GestureController.gc_mode:
-            Gesture_Controller.GestureController.gc_mode = 0
+        if state.gesture_process and state.gesture_process.poll() is None:
+            state.gesture_process.terminate()
+            state.gesture_process = None
         app.ChatBot.close()
         sys.exit()
 
@@ -228,17 +258,16 @@ def respond(voice_data):
     # GESTURE RECOGNITION
     # -----------------------------------------------------------------------
     elif 'launch gesture recognition' in voice_data:
-        if Gesture_Controller.GestureController.gc_mode:
+        if state.gesture_process and state.gesture_process.poll() is None:
             reply('Gesture recognition is already active')
         else:
-            gc = Gesture_Controller.GestureController()
-            t = Thread(target=gc.start)
-            t.start()
+            state.gesture_process = _subprocess.Popen([sys.executable, _GESTURE_SCRIPT])
             reply('Launched Successfully')
 
     elif ('stop gesture recognition' in voice_data) or ('top gesture recognition' in voice_data):
-        if Gesture_Controller.GestureController.gc_mode:
-            Gesture_Controller.GestureController.gc_mode = 0
+        if state.gesture_process and state.gesture_process.poll() is None:
+            state.gesture_process.terminate()
+            state.gesture_process = None
             reply('Gesture recognition stopped')
         else:
             reply('Gesture recognition is already inactive')
@@ -332,7 +361,7 @@ def respond(voice_data):
 
     elif 'maximize' in voice_data or 'maximise' in voice_data:
         if IS_MAC:
-            pyautogui.hotkey('ctrl', 'command', 'f')
+            os.system("osascript -e 'tell application \"System Events\" to perform action \"AXZoom\" of (first window of (first process whose frontmost is true))'")
         else:
             pyautogui.hotkey('win', 'up')
         reply("Maximized")
@@ -414,13 +443,36 @@ def respond(voice_data):
     # WEATHER
     # -----------------------------------------------------------------------
     elif 'weather' in voice_data:
+        def _format_weather(raw):
+            icon_map = {
+                '\u2600\ufe0f': 'sunny', '\u2600': 'sunny',
+                '\U0001f324': 'mostly sunny', '\U0001f325': 'partly cloudy',
+                '\u26c5': 'partly cloudy', '\U0001f326': 'light rain',
+                '\U0001f327': 'rainy', '\u26c8': 'thunderstorm',
+                '\U0001f329': 'thunderstorm', '\U0001f328': 'snowy',
+                '\u2744\ufe0f': 'snowing', '\u2744': 'snowing',
+                '\U0001f32b': 'foggy', '\U0001f32c': 'windy',
+                '\U0001f32a': 'stormy', '\U0001f321': '',
+                '\U0001f302': 'rainy',
+            }
+            text = raw.strip()
+            for icon, word in icon_map.items():
+                text = text.replace(icon, f' {word} ' if word else ' ')
+            import re as _re
+            text = _re.sub(r'[^\x00-\x7F\s\u00b0+\-\d:,./()a-zA-Z]', '', text)
+            text = text.replace('+', 'positive ').replace('-', 'negative ')
+            text = _re.sub(r'\u00b0[Cc]', ' degrees celsius', text)
+            text = _re.sub(r'\u00b0[Ff]', ' degrees fahrenheit', text)
+            text = _re.sub(r'\s+', ' ', text).strip()
+            return text
+
         try:
             import urllib.request
             location = voice_data.replace('weather', '').strip() or 'auto'
             url = f"http://wttr.in/{location}?format=3"
             with urllib.request.urlopen(url, timeout=5) as response:
                 weather = response.read().decode('utf-8')
-            reply(f"Current weather: {weather}")
+            reply(f"Current weather: {_format_weather(weather)}")
         except Exception:
             reply("Sorry, I couldn't fetch the weather. Check your internet connection.")
 
@@ -500,18 +552,19 @@ def respond(voice_data):
         if err:
             reply(err)
         elif apps:
-            preview = ', '.join(apps[:12])
+            preview = ',<br> '.join(apps[:12])
             extra = len(apps) - 12
             if extra > 0:
                 reply(f"Found {len(apps)} startup app entries. First entries: {preview} ... and {extra} more.")
             else:
-                reply(f"Found {len(apps)} startup app entries: {preview}")
+                reply(f"Found {len(apps)} startup app entries: <br>{preview}<br>")
         else:
             reply('No startup app entries found.')
 
-    elif 'network speed test' in voice_data:
+    elif 'network speed test' in voice_data or 'speed test' in voice_data:
         try:
-            reply('Running network speed test. This may take a few seconds...')
+            reply('Running network speed test. This may take few seconds...')
+            app.eel.showThinkingBubble()()  # re-show thinking while test runs
             latency_ms, speed_mbps, downloaded = run_network_speed_test()
             reply(f"Network check complete. <br> Latency: {latency_ms:.0f} ms. <br> Approx download speed: {speed_mbps:.2f} Mbps (sampled {downloaded // 1024} KB).")
         except Exception as e:
@@ -535,18 +588,6 @@ def respond(voice_data):
                 reply("Wikipedia search failed. Please check your internet connection")
         else:
             reply("What should I search on Wikipedia?")
-
-    # -----------------------------------------------------------------------
-    # TEXT INPUT
-    # -----------------------------------------------------------------------
-    elif 'type' in voice_data:
-        text_to_type = voice_data.replace('type', '').strip()
-        if text_to_type:
-            time.sleep(2)
-            pyautogui.typewrite(text_to_type, interval=0.1)
-            reply(f"Typed: {text_to_type}")
-        else:
-            reply("What should I type?")
 
     # -----------------------------------------------------------------------
     # WEB SEARCHES
@@ -623,7 +664,8 @@ def respond(voice_data):
                 import json
                 import urllib.error
                 api_url = f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
-                with urllib.request.urlopen(api_url, timeout=5) as response:
+                req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
                     data = json.loads(response.read().decode('utf-8'))
                 if data:
                     meanings = data[0].get('meanings', [])
@@ -649,7 +691,7 @@ def respond(voice_data):
                     reply(f"Sorry, couldn't find a definition for {word}")
             except urllib.error.HTTPError as e:
                 if e.code == 404:
-                    reply(f"Word '{word}' not found in dictionary. Check your spelling.")
+                    reply(f"No dictionary entry found for '{word}'. It may be a proper noun, brand name, or abbreviation.")
                 else:
                     reply("Dictionary service unavailable. Check your internet connection.")
             except Exception as e:
@@ -673,36 +715,149 @@ def respond(voice_data):
         except Exception:
             reply("I couldn't calculate that. Try something like: calculate 25 times 48")
 
-    elif 'convert' in voice_data and (
-        'usd' in voice_data or 'eur' in voice_data or 'gbp' in voice_data or
-        'km' in voice_data or 'miles' in voice_data or
-        'celsius' in voice_data or 'fahrenheit' in voice_data
-    ):
+    elif 'convert' in voice_data:
+        def _fmt(n, decimals=2):
+            formatted = f"{abs(n):.{decimals}f}"
+            return f"negative {formatted}" if n < 0 else formatted
+
         try:
-            if 'km' in voice_data and 'miles' in voice_data:
-                for word in voice_data.split():
-                    try:
-                        num = float(word)
-                        if 'km' in voice_data.split('to')[0]:
-                            reply(f"{num} kilometers equals {num * 0.621371:.2f} miles")
-                        else:
-                            reply(f"{num} miles equals {num * 1.60934:.2f} kilometers")
-                        break
-                    except Exception:
-                        continue
-            elif 'celsius' in voice_data or 'fahrenheit' in voice_data:
-                for word in voice_data.split():
-                    try:
-                        num = float(word)
-                        if 'celsius' in voice_data.split('to')[0]:
-                            reply(f"{num}°C equals {(num * 9/5) + 32:.2f}°F")
-                        else:
-                            reply(f"{num}°F equals {(num - 32) * 5/9:.2f}°C")
-                        break
-                    except Exception:
-                        continue
+            vd = voice_data
+            # Normalise abbreviations/alternate spellings so the checks below fire reliably
+            import re as _re
+            vd = _re.sub(r'\bmb\b', 'megabyte', vd)
+            vd = _re.sub(r'\bgb\b', 'gigabyte', vd)
+            vd = _re.sub(r'\btb\b', 'terabyte', vd)
+            vd = vd.replace('litre', 'liter')
+            num = None
+            for word in vd.split():
+                try:
+                    num = float(word)
+                    break
+                except ValueError:
+                    continue
+
+            if num is None:
+                reply("Please say a number to convert. Example: convert 5 km to miles")
+            # ── Distance ──────────────────────────────────────────────────────
+            elif 'km' in vd and 'mile' in vd:
+                if 'km' in vd.split('to')[0]:
+                    reply(f"{num} kilometers equals {_fmt(num * 0.621371)} miles")
+                else:
+                    reply(f"{num} miles equals {_fmt(num * 1.60934)} kilometers")
+            elif ('meter' in vd or 'metre' in vd) and ('feet' in vd or 'foot' in vd):
+                if 'meter' in vd.split('to')[0] or 'metre' in vd.split('to')[0]:
+                    reply(f"{num} meters equals {_fmt(num * 3.28084)} feet")
+                else:
+                    reply(f"{num} feet equals {_fmt(num / 3.28084)} meters")
+            elif ('meter' in vd or 'metre' in vd) and 'inch' in vd:
+                if 'meter' in vd.split('to')[0] or 'metre' in vd.split('to')[0]:
+                    reply(f"{num} meters equals {_fmt(num * 39.3701)} inches")
+                else:
+                    reply(f"{num} inches equals {_fmt(num / 39.3701, 4)} meters")
+            elif ('centimeter' in vd or ' cm ' in vd) and 'inch' in vd:
+                if 'centimeter' in vd.split('to')[0] or ' cm ' in vd.split('to')[0]:
+                    reply(f"{num} centimeters equals {_fmt(num / 2.54)} inches")
+                else:
+                    reply(f"{num} inches equals {_fmt(num * 2.54)} centimeters")
+            # ── Temperature ───────────────────────────────────────────────────
+            elif 'celsius' in vd or 'fahrenheit' in vd:
+                if 'celsius' in vd.split('to')[0]:
+                    reply(f"{num} degrees celsius equals {_fmt((num * 9/5) + 32)} degrees fahrenheit")
+                else:
+                    reply(f"{num} degrees fahrenheit equals {_fmt((num - 32) * 5/9)} degrees celsius")
+            # ── Weight ────────────────────────────────────────────────────────
+            elif ('kg' in vd or 'kilogram' in vd) and ('pound' in vd or ' lb' in vd or 'lbs' in vd):
+                if 'kg' in vd.split('to')[0] or 'kilogram' in vd.split('to')[0]:
+                    reply(f"{num} kilograms equals {_fmt(num * 2.20462)} pounds")
+                else:
+                    reply(f"{num} pounds equals {_fmt(num / 2.20462)} kilograms")
+            elif 'gram' in vd and 'ounce' in vd:
+                if 'gram' in vd.split('to')[0]:
+                    reply(f"{num} grams equals {_fmt(num / 28.3495)} ounces")
+                else:
+                    reply(f"{num} ounces equals {_fmt(num * 28.3495)} grams")
+            # ── Volume ────────────────────────────────────────────────────────
+            elif 'liter' in vd and 'gallon' in vd:
+                if 'liter' in vd.split('to')[0]:
+                    reply(f"{num} liters equals {_fmt(num * 0.264172)} gallons")
+                else:
+                    reply(f"{num} gallons equals {_fmt(num / 0.264172)} liters")
+            elif ('milliliter' in vd or ' ml ' in vd) and ('fluid ounce' in vd or 'fl oz' in vd):
+                if 'milliliter' in vd.split('to')[0] or ' ml ' in vd.split('to')[0]:
+                    reply(f"{num} milliliters equals {_fmt(num / 29.5735)} fluid ounces")
+                else:
+                    reply(f"{num} fluid ounces equals {_fmt(num * 29.5735)} milliliters")
+            # ── Speed ─────────────────────────────────────────────────────────
+            elif ('kmh' in vd or 'kph' in vd or 'km per hour' in vd or 'kilometer per hour' in vd) and 'mph' in vd:
+                if any(x in vd.split('to')[0] for x in ['kmh', 'kph', 'km per hour', 'kilometer per hour']):
+                    reply(f"{num} km/h equals {_fmt(num * 0.621371)} mph")
+                else:
+                    reply(f"{num} mph equals {_fmt(num / 0.621371)} km/h")
+            # ── Data ──────────────────────────────────────────────────────────
+            elif 'megabyte' in vd and 'gigabyte' in vd:
+                if 'megabyte' in vd.split('to')[0]:
+                    reply(f"{num} megabytes equals {_fmt(num / 1024, 4)} gigabytes")
+                else:
+                    reply(f"{num} gigabytes equals {_fmt(num * 1024, 0)} megabytes")
+            elif 'gigabyte' in vd and 'terabyte' in vd:
+                if 'gigabyte' in vd.split('to')[0]:
+                    reply(f"{num} gigabytes equals {_fmt(num / 1024, 4)} terabytes")
+                else:
+                    reply(f"{num} terabytes equals {_fmt(num * 1024, 0)} gigabytes")
+            elif 'megabyte' in vd and 'terabyte' in vd:
+                if 'megabyte' in vd.split('to')[0]:
+                    reply(f"{num} megabytes equals {_fmt(num / (1024 * 1024), 8)} terabytes")
+                else:
+                    reply(f"{num} terabytes equals {_fmt(num * 1024 * 1024, 0)} megabytes")
+            # ── Time ──────────────────────────────────────────────────────────
+            elif 'hour' in vd and 'minute' in vd:
+                if 'hour' in vd.split('to')[0]:
+                    reply(f"{num} hours equals {_fmt(num * 60, 0)} minutes")
+                else:
+                    reply(f"{num} minutes equals {_fmt(num / 60, 4)} hours")
+            elif 'hour' in vd and 'second' in vd:
+                if 'hour' in vd.split('to')[0]:
+                    reply(f"{num} hours equals {_fmt(num * 3600, 0)} seconds")
+                else:
+                    reply(f"{num} seconds equals {_fmt(num / 3600, 4)} hours")
+            elif 'minute' in vd and 'second' in vd:
+                if 'minute' in vd.split('to')[0]:
+                    reply(f"{num} minutes equals {_fmt(num * 60, 0)} seconds")
+                else:
+                    reply(f"{num} seconds equals {_fmt(num / 60, 4)} minutes")
+            # ── Currency (frankfurter.app — free, no key) ─────────────────────
+            elif any(c in vd for c in ['usd', 'eur', 'gbp', 'inr', 'jpy', 'cad', 'aud', 'chf', 'aed']):
+                try:
+                    import urllib.request, json as _json, ssl as _ssl
+                    currencies = ['usd', 'eur', 'gbp', 'inr', 'jpy', 'cad', 'aud', 'chf', 'aed']
+                    parts = vd.split('to')
+                    from_cur, to_cur = None, None
+                    if len(parts) >= 2:
+                        for c in currencies:
+                            if c in parts[0]:
+                                from_cur = c.upper()
+                            if c in parts[1]:
+                                to_cur = c.upper()
+                    if from_cur and to_cur:
+                        ssl_ctx = _ssl.create_default_context()
+                        ssl_ctx.check_hostname = False
+                        ssl_ctx.verify_mode = _ssl.CERT_NONE
+                        api_url = f"https://api.frankfurter.app/latest?from={from_cur}&to={to_cur}"
+                        with urllib.request.urlopen(api_url, timeout=8, context=ssl_ctx) as resp:
+                            data = _json.loads(resp.read().decode())
+                        rate = data['rates'][to_cur]
+                        reply(f"{num} {from_cur} equals {num * rate:.2f} {to_cur}")
+                    else:
+                        reply("Please specify both currencies. Example: convert 100 usd to inr")
+                except Exception as _e:
+                    reply(f"Currency conversion failed. ({_e})")
             else:
-                reply("Currency conversion requires an API. Try unit conversions like: convert 5 km to miles")
+                reply(
+                    "I can convert only in below units:<br>km/miles, meters/feet/inches, cm/inches, "
+                    "celsius/fahrenheit, kg/pounds, grams/ounces, liters/gallons, "
+                    "ml/fluid ounces, km per hour/mph, megabytes/gigabytes/terabytes, "
+                    "hours/minutes/seconds, and currencies like USD, EUR, GBP, INR, JPY, CAD, AUD"
+                )
         except Exception:
             reply("Conversion failed. Try: convert 5 km to miles")
 
@@ -949,15 +1104,22 @@ def respond(voice_data):
     # -----------------------------------------------------------------------
     elif voice_data == 'help' or voice_data == 'commands' or voice_data == 'what can you do':
         help_text = "Available commands: <br>"
-        help_text += "• Basic: hello, time, date, search, weather <br>"
+        help_text += "• Basic: hello, time, date, weather, location, what is your name <br>"
+        help_text += "• Clipboard: copy, paste, type [text] <br>"
+        help_text += "• Window: minimize, maximize, scroll up, scroll down <br>"
+        help_text += "• System: volume up/down, mute/unmute, brightness up/down, screenshot, lock screen <br>"
+        help_text += "• Browser: new tab, close tab, incognito, refresh <br>"
+        help_text += "• Music: play music, pause music, next song, previous song <br>"
         help_text += "• Apps: open app [name], close app [name] <br>"
-        help_text += "• System: volume up/down, brightness, screenshot, lock <br>"
-        help_text += "• Search: youtube search, github search, stackoverflow <br>"
-        help_text += "• Tools: calculate, convert, translate, define <br>"
-        help_text += "• Power: cleanup desktop, empty recycle bin, startup apps status, network speed test <br>"
+        help_text += "• Gesture: launch gesture recognition, stop gesture recognition <br>"
+        help_text += "• Search: search [query], youtube search [query], github search [query], stackoverflow [query] <br>"
+        help_text += "• Tools: calculate [expr], convert [unit], translate [text], define [word], wikipedia [topic], set timer [duration] <br>"
+        help_text += "• Files: list (browse root directory) <br>"
         help_text += "• Info: battery, cpu, system info, ip address, wifi name <br>"
-        help_text += "• Fun: joke, flip coin, roll dice, magic 8 ball, motivational quote, random fact <br>"
-        help_text += "• Easter eggs: Try 'quantum sing', 'good job quantum' <br>"
+        help_text += "• Power: cleanup desktop, empty recycle bin, startup apps status, network speed test <br>"
+        help_text += "• Fun: joke, flip coin, roll dice, magic 8 ball, motivational quote, random fact, compliment me, roast me, sing, dance <br>"
+        help_text += "• About: tell me about yourself, are you alive, thoughts on ai, change name to [name] <br>"
+        help_text += "• Easter eggs: good job quantum, well done quantum, thank you quantum <br>"
         help_text += "Say 'quantum' before each command!"
         reply(help_text)
 
@@ -1020,4 +1182,37 @@ def respond(voice_data):
                 app.ChatBot.addAppMsg(filestr)
 
     else:
-        reply('I am not functioned to do this !')
+        import random as _random
+        _unknown_responses = [
+            "Hmm, that's beyond my current abilities. Try asking something else!",
+            "I'm not sure how to help with that one. Got another command?",
+            "That's outside my skill set for now. Maybe I'll learn it someday!",
+            "I didn't quite get that. Could you try rephrasing?",
+            "Not in my command book yet! Try 'help' to see what I can do.",
+            "That one stumped me. I'm good, but not that good... yet.",
+            "I wish I could help with that, but it's not something I support.",
+            "Interesting request, but that's a no from me. Try something else!",
+            "I'm drawing a blank on that. Ask me something different?",
+            "That command doesn't ring a bell. Type 'help' for a full list.",
+            "Oops, I don't know how to do that. But I'm always learning!",
+            "I heard you, but I don't know what to do with that. Try 'help'.",
+            "That's a new one for me! Unfortunately, I can't handle it right now.",
+            "Not quite in my repertoire. What else can I do for you?",
+            "I'm Quantum, not magic — that one's out of my range!",
+            "My circuits are drawing a blank on that one.",
+            "Even I have limits — and that's one of them. For now!",
+            "I processed that and came up with... nothing. Sorry!",
+            "That's above my pay grade. Try a different command?",
+            "Unknown territory! I'd explore it, but I don't have a map.",
+            "I'm still growing — that feature hasn't been added to me yet.",
+            "Did you mean something else? I couldn't match that to any command.",
+            "Request received, capability not found. Try 'help' for ideas.",
+            "I'm confident I can do a lot — just not that. Not yet, anyway.",
+            "That sailed right over my head. What else can I do for you?",
+            "Scanning knowledge base... command not found. Try rephrasing?",
+            "I'd love to help, but that one's not in my arsenal.",
+            "Interesting! But I have no idea how to do that. Ask me something else.",
+            "My best guess is that you want something I don't support — yet.",
+            "That's a mystery to me. Type 'help' and let's find something I can do!",
+        ]
+        reply(_random.choice(_unknown_responses))

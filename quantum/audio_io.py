@@ -10,11 +10,23 @@ Handles:
 import os
 import platform
 import datetime
+import re
 
 import speech_recognition as sr
 import pyttsx3
 
 import quantum.state as state
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"
+    "\U0001F300-\U0001F5FF"
+    "\U0001F680-\U0001F6FF"
+    "\U0001F1E0-\U0001F1FF"
+    "\U00002702-\U000027B0"
+    "\U000024C2-\U0001F251"
+    "]+", flags=re.UNICODE
+)
 
 IS_MAC = platform.system() == 'Darwin'
 
@@ -60,19 +72,20 @@ with sr.Microphone() as _source:
 
 def reply(audio):
     """Send a response to the UI and speak it aloud."""
+    spoken = _EMOJI_RE.sub('', audio).strip()
     import app  # deferred to avoid import-time circular dependency
     app.ChatBot.addAppMsg(audio)
     print(audio)
 
     if TTS_AVAILABLE and engine:
         try:
-            engine.say(audio)
+            engine.say(spoken)
             engine.runAndWait()
         except Exception:
             if IS_MAC:
-                os.system(f'say "{audio}"')
+                os.system(f'say "{spoken}"')
     elif IS_MAC:
-        os.system(f'say "{audio}"')
+        os.system(f'say "{spoken}"')
 
 
 def wish():
@@ -99,4 +112,9 @@ def record_audio():
             reply('Sorry my Service is down. Plz check your Internet connection')
         except sr.UnknownValueError:
             print('cant recognize')
+        except OSError as e:
+            if 'flac' in str(e).lower():
+                print("FLAC not found. Install with: brew install flac")
+            else:
+                print(f"Audio error: {e}")
         return voice_data.lower()

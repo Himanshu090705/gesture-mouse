@@ -211,6 +211,22 @@ class GestureController:
 
                         for hand_landmarks in results.multi_hand_landmarks:
                             mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+                        # Gesture confidence overlay
+                        _GESTURE_NAMES = {
+                            0: 'Fist / Drag', 1: 'Pinky', 2: 'Ring', 4: 'Left Click',
+                            7: 'Last 3', 8: 'Right Click', 12: 'Two Fingers',
+                            15: 'Last 4', 16: 'Thumb', 31: 'Palm',
+                            33: 'V — Cursor Mode', 34: 'Double Click',
+                            35: 'Pinch — Vol/Brightness', 36: 'Pinch — Scroll',
+                        }
+                        minor_g = handminor.get_gesture()
+                        major_g = handmajor.get_gesture()
+                        active_g = minor_g if int(minor_g) == 36 else major_g
+                        label = _GESTURE_NAMES.get(int(active_g), str(active_g))
+                        cv2.rectangle(image, (8, 8), (320, 40), (0, 0, 0), -1)
+                        cv2.putText(image, f'Gesture: {label}', (12, 30),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 120), 2)
                     else:
                         Controller.prev_hand = None
 

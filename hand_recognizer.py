@@ -156,7 +156,7 @@ class HandRecog:
         current_gesture = Gest.PALM
 
         # Check for pinch gestures
-        if self.finger in [Gest.LAST3, Gest.LAST4] and self.get_dist([8, 4]) < 0.05:
+        if self.finger in [Gest.LAST3, Gest.LAST4] and self.get_dist([8, 4]) < 0.08:
             if self.hand_label == HLabel.MINOR:
                 current_gesture = Gest.PINCH_MINOR
             else:

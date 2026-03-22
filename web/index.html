@@ -216,7 +216,7 @@
         }
 
         .bubble {
-            max-width: 500px;
+            max-width: 1000px;
             padding: 12px 16px;
             border-radius: 18px;
             word-wrap: break-word;
@@ -421,7 +421,7 @@
             gap: 8px;
             flex-wrap: wrap;
             max-width: 350px;
-            margin: 10px auto 0;
+            margin: 0px auto 10px;
         }
 
         .hint-chip {
@@ -440,6 +440,141 @@
             border-color: #667eea;
             transform: translateY(-2px);
         }
+
+        /* Sleep state: red indicator */
+        .status-indicator.sleeping {
+            background: #ef4444;
+            box-shadow: 0 0 10px #ef4444;
+            animation: blink 1.5s ease-in-out infinite;
+        }
+
+        /* Thinking bubble */
+        .thinking-bubble .bubble.bot {
+            background: rgba(102, 126, 234, 0.08);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            min-width: 180px;
+        }
+
+        .thinking-text {
+            background: linear-gradient(90deg, #8ab4f8 0%, #c084fc 40%, #8ab4f8 80%);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: shimmerText 2.5s linear infinite;
+            font-style: italic;
+            font-size: 13px;
+        }
+
+        @keyframes shimmerText {
+            0%   { background-position: 0% center; }
+            100% { background-position: 200% center; }
+        }
+
+        /* Thinking dots row */
+        .thinking-dots {
+            display: flex;
+            gap: 4px;
+            margin-top: 6px;
+            align-items: center;
+        }
+
+        /* Status wrapper */
+        .status-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-label {
+            font-size: 10px;
+            color: #4ade80;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: color 0.4s ease;
+        }
+
+        .status-label.sleeping {
+            color: #ef4444;
+        }
+
+        /* Sound toggle */
+        .sound-toggle {
+            background: none;
+            border: none;
+            color: rgba(138, 180, 248, 0.4);
+            font-size: 13px;
+            cursor: pointer;
+            padding: 4px 6px;
+            transition: color 0.2s ease;
+        }
+
+        .sound-toggle:hover { color: #8ab4f8; }
+        .sound-toggle.muted  { color: rgba(138, 180, 248, 0.25); }
+
+        /* Toast notifications */
+        #toast-container {
+            position: fixed;
+            top: 80px;
+            right: 16px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        }
+
+        .toast {
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-size: 12px;
+            backdrop-filter: blur(20px);
+            border: 1px solid;
+            animation: toastIn 0.3s ease-out, toastOut 0.3s ease-in 2.7s forwards;
+            pointer-events: none;
+            max-width: 240px;
+        }
+
+        .toast.info {
+            background: rgba(102, 126, 234, 0.2);
+            border-color: rgba(102, 126, 234, 0.5);
+            color: #c4cfff;
+        }
+
+        .toast.success {
+            background: rgba(74, 222, 128, 0.15);
+            border-color: rgba(74, 222, 128, 0.4);
+            color: #a7f3c0;
+        }
+
+        .toast.warning {
+            background: rgba(251, 191, 36, 0.15);
+            border-color: rgba(251, 191, 36, 0.4);
+            color: #fde68a;
+        }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(40px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateX(0); }
+            to   { opacity: 0; transform: translateX(40px); }
+        }
+
+        /* Message timestamp */
+        .msg-time {
+            font-size: 10px;
+            color: rgba(138, 180, 248, 0.35);
+            margin-top: 4px;
+            opacity: 1;
+            transition: opacity 0.2s ease;
+            padding: 0 4px;
+        }
+
+        /* .message:hover .msg-time { opacity: 1; } */
+        .message.user .msg-time  { text-align: right; }
     </style>
 </head>
 <body>
@@ -470,7 +605,13 @@
                         <div class="subtitle">AI Assistant</div>
                     </div>
                 </div>
-                <div class="status-indicator" title="Online"></div>
+                <div class="status-wrapper">
+                    <button class="sound-toggle" id="soundToggle" title="Toggle sounds">
+                        <i class="fas fa-volume-up"></i>
+                    </button>
+                    <div class="status-indicator" title="Online"></div>
+                    <span class="status-label" id="statusLabel">Awake</span>
+                </div>
             </div>
         </header>
 
@@ -484,12 +625,7 @@
             <!-- Autocomplete Suggestions -->
             <div class="suggestions-container" id="suggestionsContainer"></div>
 
-            <div class="command-hints">
-                <div class="hint-chip" onclick="sendCommand('hello')">👋 Hello</div>
-                <div class="hint-chip" onclick="sendCommand('time')">🕐 Time</div>
-                <div class="hint-chip" onclick="sendCommand('motivational quote')">💡 Inspire</div>
-                <div class="hint-chip" onclick="sendCommand('help')">❓ Help</div>
-            </div>
+            <div class="command-hints" id="commandHints"></div>
             <div class="input-container">
                 <button id="modeToggle" class="mode-toggle" title="Toggle Voice/Text Mode">
                     <i class="fas fa-microphone"></i>
@@ -520,29 +656,112 @@
             messageDiv.className = 'message user';
             messageDiv.innerHTML = `
                 <div class="avatar user"><i class="fas fa-user"></i></div>
-                <div class="bubble user">${msg}</div>
+                <div>
+                    <div class="bubble user">${msg}</div>
+                    <div class="msg-time">${getTime()}</div>
+                </div>
             `;
             container.appendChild(messageDiv);
             container.scrollTop = container.scrollHeight;
+            playClick();
+            showThinking();
         }
 
         eel.expose(addAppMsg);
         function addAppMsg(msg) {
+            hideThinking();
+            playChime();
             const container = document.getElementById('messages');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message bot';
             messageDiv.innerHTML = `
                 <div class="avatar bot"><i class="fas fa-robot"></i></div>
-                <div class="bubble bot">${msg}</div>
+                <div>
+                    <div class="bubble bot">${msg}</div>
+                    <div class="msg-time">${getTime()}</div>
+                </div>
             `;
             container.appendChild(messageDiv);
             container.scrollTop = container.scrollHeight;
+        }
+
+        // Thinking bubble
+        const thinkingPhrases = [
+            "Wandering through thoughts",
+            "Flabbergasting possibilities",
+            "Pondering the cosmos",
+            "Deciphering quantum patterns",
+            "Calibrating neural pathways",
+            "Synthesizing reality",
+            "Bending spacetime"
+        ];
+        let thinkingInterval = null;
+        let thinkingPhraseIndex = 0;
+
+        function showThinking() {
+            hideThinking();
+            const container = document.getElementById('messages');
+            const bubble = document.createElement('div');
+            bubble.className = 'message bot thinking-bubble';
+            bubble.id = 'thinking-bubble';
+            bubble.innerHTML = `
+                <div class="avatar bot"><i class="fas fa-robot"></i></div>
+                <div class="bubble bot">
+                    <span class="thinking-text">${thinkingPhrases[0]}</span>
+                    <div class="thinking-dots">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(bubble);
+            container.scrollTop = container.scrollHeight;
+            thinkingPhraseIndex = 0;
+            thinkingInterval = setInterval(() => {
+                thinkingPhraseIndex = (thinkingPhraseIndex + 1) % thinkingPhrases.length;
+                const textEl = document.querySelector('#thinking-bubble .thinking-text');
+                if (textEl) textEl.textContent = thinkingPhrases[thinkingPhraseIndex];
+            }, 1800);
+        }
+
+        function hideThinking() {
+            if (thinkingInterval) { clearInterval(thinkingInterval); thinkingInterval = null; }
+            const bubble = document.getElementById('thinking-bubble');
+            if (bubble) bubble.remove();
+        }
+
+        // Python can call this to re-show thinking mid-operation
+        eel.expose(showThinkingBubble);
+        function showThinkingBubble() { showThinking(); }
+
+        // Sleep / awake status indicator
+        eel.expose(setAwakeStatus);
+        function setAwakeStatus(isAwake) {
+            const dot = document.querySelector('.status-indicator');
+            const label = document.getElementById('statusLabel');
+            if (isAwake) {
+                dot.classList.remove('sleeping');
+                dot.title = 'Online';
+                label.textContent = 'Awake';
+                label.classList.remove('sleeping');
+            } else {
+                dot.classList.add('sleeping');
+                dot.title = 'Sleeping — say "Quantum wake up"';
+                label.textContent = 'Sleeping';
+                label.classList.add('sleeping');
+            }
         }
 
         // Mode toggle state
         let isTextMode = false;
         let currentSuggestions = [];
         let selectedSuggestionIndex = -1;
+
+        // Command history
+        let cmdHistory = [];
+        let historyIndex = -1;
+        let historyTempInput = '';
 
         // Quick command helper
         function sendCommand(cmd) {
@@ -634,8 +853,10 @@
         // Input field event listeners
         const userInput = document.getElementById('userInput');
 
-        // Handle typing for autocomplete
+        // Handle typing for autocomplete; reset history navigation on any keystroke
         userInput.addEventListener('input', function(e) {
+            historyIndex = -1;
+            historyTempInput = '';
             const value = e.target.value.trim();
             if (isTextMode) {
                 updateSuggestions(value);
@@ -651,17 +872,40 @@
                 e.preventDefault();
                 selectSuggestion(currentSuggestions[selectedSuggestionIndex >= 0 ? selectedSuggestionIndex : 0]);
             }
-            // Arrow down - navigate suggestions
-            else if (e.key === 'ArrowDown' && currentSuggestions.length > 0) {
+            // Arrow down — history navigation OR autocomplete (never both)
+            else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, currentSuggestions.length - 1);
-                highlightSuggestion(selectedSuggestionIndex);
+                if (historyIndex !== -1) {
+                    // Already in history mode — go forward
+                    historyIndex++;
+                    if (historyIndex >= cmdHistory.length) {
+                        historyIndex = -1;
+                        userInput.value = '';
+                    } else {
+                        userInput.value = cmdHistory[historyIndex];
+                    }
+                } else if (currentSuggestions.length > 0) {
+                    selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, currentSuggestions.length - 1);
+                    highlightSuggestion(selectedSuggestionIndex);
+                }
             }
-            // Arrow up - navigate suggestions
-            else if (e.key === 'ArrowUp' && currentSuggestions.length > 0) {
+            // Arrow up — enter/continue history (bash-style) OR autocomplete
+            else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, 0);
-                highlightSuggestion(selectedSuggestionIndex);
+                if (userInput.value.trim() === '' || historyIndex !== -1) {
+                    // Enter or continue history navigation
+                    if (cmdHistory.length > 0) {
+                        if (historyIndex === -1) {
+                            historyIndex = cmdHistory.length - 1;
+                        } else if (historyIndex > 0) {
+                            historyIndex--;
+                        }
+                        userInput.value = cmdHistory[historyIndex];
+                    }
+                } else if (currentSuggestions.length > 0) {
+                    selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, 0);
+                    highlightSuggestion(selectedSuggestionIndex);
+                }
             }
             // Escape - close suggestions
             else if (e.key === 'Escape') {
@@ -691,21 +935,120 @@
             }
         });
 
+        // LRU command history helper (max 20 entries)
+        function addToHistory(cmd) {
+            const idx = cmdHistory.indexOf(cmd);
+            if (idx !== -1) cmdHistory.splice(idx, 1); // remove duplicate → will re-add at end
+            cmdHistory.push(cmd);                       // most recent at end
+            if (cmdHistory.length > 20) cmdHistory.shift(); // evict oldest (LRU)
+        }
+
         // Send button handler
         document.getElementById('userInputButton').addEventListener('click', function() {
             const input = document.getElementById('userInput');
             const msg = input.value.trim();
             if (msg) {
-                // In text mode, don't require 'quantum' prefix
-                if (isTextMode) {
-                    eel.getUserInput(msg);
-                } else {
-                    // In voice mode, still accept manual text with or without 'quantum'
-                    eel.getUserInput(msg);
-                }
+                addToHistory(msg);
+                historyIndex = -1;
+                historyTempInput = '';
+                eel.getUserInput(msg);
                 input.value = '';
             }
         });
+        // ── Timestamp helper ──────────────────────────────────────────────────
+        function getTime() {
+            const d = new Date();
+            let h = d.getHours(), m = d.getMinutes();
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            h = h % 12 || 12;
+            return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+        }
+
+        // ── Toast notifications ───────────────────────────────────────────────
+        const toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        document.body.appendChild(toastContainer);
+
+        eel.expose(showToast);
+        function showToast(msg, type = 'info') {
+            const t = document.createElement('div');
+            t.className = `toast ${type}`;
+            t.textContent = msg;
+            toastContainer.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+
+        // ── Sound engine (Web Audio API — no external files) ──────────────────
+        let soundEnabled = true;
+        let _audioCtx = null;
+        function getAudioCtx() {
+            if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            return _audioCtx;
+        }
+
+        function playClick() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioCtx();
+                const o = ctx.createOscillator(), g = ctx.createGain();
+                o.connect(g); g.connect(ctx.destination);
+                o.frequency.value = 700;
+                g.gain.setValueAtTime(0.08, ctx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.07);
+                o.start(); o.stop(ctx.currentTime + 0.07);
+            } catch (_) {}
+        }
+
+        function playChime() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioCtx();
+                [440, 554].forEach((freq, i) => {
+                    const o = ctx.createOscillator(), g = ctx.createGain();
+                    o.connect(g); g.connect(ctx.destination);
+                    o.type = 'sine'; o.frequency.value = freq;
+                    const t = ctx.currentTime + i * 0.13;
+                    g.gain.setValueAtTime(0, t);
+                    g.gain.linearRampToValueAtTime(0.1, t + 0.05);
+                    g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                    o.start(t); o.stop(t + 0.35);
+                });
+            } catch (_) {}
+        }
+
+        // Sound toggle button
+        const soundBtn = document.getElementById('soundToggle');
+        soundBtn.addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+            soundBtn.innerHTML = soundEnabled
+                ? '<i class="fas fa-volume-up"></i>'
+                : '<i class="fas fa-volume-mute"></i>';
+            soundBtn.classList.toggle('muted', !soundEnabled);
+        });
+
+        // ── Hint chip rotation ────────────────────────────────────────────────
+        const ALL_HINTS = [
+            { label: '👋 Hello',      cmd: 'hello' },
+            { label: '🕐 Time',       cmd: 'time' },
+            { label: '💡 Inspire',    cmd: 'motivational quote' },
+            { label: '❓ Help',       cmd: 'help' },
+            { label: '📅 Date',       cmd: 'date' },
+            { label: '🎵 Music',      cmd: 'play music' },
+            { label: '📸 Screenshot', cmd: 'take screenshot' },
+            { label: '🔋 Battery',    cmd: 'battery' },
+            { label: '💻 System',     cmd: 'system info' },
+            { label: '😂 Joke',       cmd: 'tell me a joke' },
+            { label: '🚀 Gesture',    cmd: 'gesture mode' },
+            { label: '⚡ Speed',      cmd: 'speed test' },
+        ];
+
+        function renderHints() {
+            const shuffled = [...ALL_HINTS].sort(() => Math.random() - 0.5).slice(0, 4);
+            document.getElementById('commandHints').innerHTML = shuffled
+                .map(h => `<div class="hint-chip" onclick="sendCommand('${h.cmd}')">${h.label}</div>`)
+                .join('');
+        }
+        renderHints();
     </script>
 </body>
 </html>
