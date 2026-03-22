@@ -39,6 +39,23 @@ from quantum.system_tools import (
 keyboard = KeyboardController()
 CMD_KEY = Key.cmd if IS_MAC else Key.ctrl
 
+_BROWSERS_MAC = ['Brave Browser', 'Google Chrome', 'Safari', 'Firefox', 'Microsoft Edge']
+
+def _focus_browser():
+    """Bring the browser window to front before sending keyboard shortcuts."""
+    if IS_MAC:
+        for b in _BROWSERS_MAC:
+            r = _subprocess.run(
+                ['osascript', '-e', f'tell application "{b}" to activate'],
+                capture_output=True
+            )
+            if r.returncode == 0:
+                time.sleep(0.4)
+                return
+    else:
+        # Windows: send shortcut directly — browser usually stays focused
+        pass
+
 # ---------------------------------------------------------------------------
 # LLM (optional)
 # ---------------------------------------------------------------------------
@@ -182,7 +199,7 @@ def respond(voice_data):
     # -----------------------------------------------------------------------
     # BASIC COMMANDS
     # -----------------------------------------------------------------------
-    elif 'hello' in voice_data:
+    elif voice_data.startswith('hello') or voice_data == 'hello':
         from quantum.audio_io import wish
         wish()
 
@@ -418,8 +435,17 @@ def respond(voice_data):
 
     elif 'close app' in voice_data or ('close' in voice_data and not state.file_exp_status):
         app_name = voice_data.replace('close app', '').replace('close', '').strip()
-        if 'tab' in voice_data or 'window' in voice_data:
-            pass  # handled by browser controls below
+        if 'tab' in voice_data:
+            _focus_browser()
+            pyautogui.hotkey('command' if IS_MAC else 'ctrl', 'w')
+            reply("Closing tab")
+        elif 'window' in voice_data:
+            _focus_browser()
+            if IS_MAC:
+                pyautogui.hotkey('command', 'shift', 'w')
+            else:
+                pyautogui.hotkey('alt', 'f4')
+            reply("Closing window")
         elif app_name:
             try:
                 if IS_MAC:
@@ -520,21 +546,33 @@ def respond(voice_data):
         reply("Brightness decreased")
 
     # -----------------------------------------------------------------------
-    # BROWSER CONTROLS
+    # BROWSER CONTROLS  (focus browser first, then send shortcut)
     # -----------------------------------------------------------------------
     elif 'new tab' in voice_data:
+        _focus_browser()
         pyautogui.hotkey('command' if IS_MAC else 'ctrl', 't')
         reply("Opening new tab")
 
     elif 'close tab' in voice_data:
+        _focus_browser()
         pyautogui.hotkey('command' if IS_MAC else 'ctrl', 'w')
         reply("Closing tab")
 
+    elif 'close window' in voice_data:
+        _focus_browser()
+        if IS_MAC:
+            pyautogui.hotkey('command', 'shift', 'w')
+        else:
+            pyautogui.hotkey('alt', 'f4')
+        reply("Closing window")
+
     elif 'incognito' in voice_data or 'private' in voice_data:
+        _focus_browser()
         pyautogui.hotkey('command' if IS_MAC else 'ctrl', 'shift', 'n')
         reply("Opening incognito window")
 
     elif 'refresh' in voice_data or 'reload' in voice_data:
+        _focus_browser()
         pyautogui.hotkey('command' if IS_MAC else 'ctrl', 'r')
         reply("Refreshing page")
 
@@ -706,14 +744,27 @@ def respond(voice_data):
     elif 'calculate' in voice_data or 'math' in voice_data:
         try:
             expression = voice_data.replace('calculate', '').replace('math', '').strip()
-            allowed_chars = set('0123456789+-*/()., ')
+            # Replace word operators and common voice alternatives
+            import re as _re
+            expression = (expression
+                .replace('multiplied by', '*').replace('times', '*')
+                .replace('divided by', '/').replace('over', '/')
+                .replace('plus', '+').replace('minus', '-').replace('subtract', '-')
+                .replace('power', '**').replace('squared', '**2').replace('cubed', '**3')
+                .replace('mod ', '%').replace('modulo', '%')
+            )
+            # Replace 'x' used as multiplication (with or without spaces)
+            expression = _re.sub(r'(?<=\d)\s*x\s*(?=\d)', '*', expression)
+            allowed_chars = set('0123456789+-**/()., %')
             if all(c in allowed_chars for c in expression):
                 result = eval(expression)
-                reply(f"The answer is: {result}")
+                # Show as int if whole number
+                result_str = str(int(result)) if isinstance(result, float) and result.is_integer() else str(result)
+                reply(f"The answer is: {result_str}")
             else:
-                reply("Sorry, I can only calculate basic math expressions with numbers and operators.")
+                reply("Sorry, I can only calculate basic math. Try: calculate 25 times 48")
         except Exception:
-            reply("I couldn't calculate that. Try something like: calculate 25 times 48")
+            reply("I couldn't calculate that. Try: calculate 25 times 48")
 
     elif 'convert' in voice_data:
         def _fmt(n, decimals=2):
@@ -728,6 +779,29 @@ def respond(voice_data):
             vd = _re.sub(r'\bgb\b', 'gigabyte', vd)
             vd = _re.sub(r'\btb\b', 'terabyte', vd)
             vd = vd.replace('litre', 'liter')
+            # Normalise full currency names to ISO codes
+            _cnames = {
+                'us dollar': 'usd', 'us dollars': 'usd', 'united states dollar': 'usd', 'american dollar': 'usd',
+                'euro': 'eur', 'euros': 'eur',
+                'british pound': 'gbp', 'pound sterling': 'gbp', 'pounds': 'gbp', 'pound': 'gbp',
+                'indian rupee': 'inr', 'indian rupees': 'inr', 'rupee': 'inr', 'rupees': 'inr',
+                'japanese yen': 'jpy', 'yen': 'jpy',
+                'canadian dollar': 'cad', 'canadian dollars': 'cad',
+                'australian dollar': 'aud', 'australian dollars': 'aud',
+                'swiss franc': 'chf', 'franc': 'chf', 'francs': 'chf',
+                'emirati dirham': 'aed', 'dirham': 'aed', 'dirhams': 'aed',
+                'chinese yuan': 'cny', 'yuan': 'cny', 'renminbi': 'cny',
+                'singapore dollar': 'sgd', 'singapore dollars': 'sgd',
+                'mexican peso': 'mxn', 'peso': 'mxn', 'pesos': 'mxn',
+            }
+            for _cname, _code in sorted(_cnames.items(), key=lambda x: -len(x[0])):
+                if _cname in vd:
+                    vd = vd.replace(_cname, _code)
+            # Normalise currency symbols to codes (e.g. €50 → eur 50)
+            _csymbols = {'$': 'usd', '€': 'eur', '£': 'gbp', '¥': 'jpy', '₹': 'inr', '₩': 'krw', '₣': 'chf'}
+            for _sym, _code in _csymbols.items():
+                vd = _re.sub(r'\{}(\d)'.format(_re.escape(_sym)), r'{} \1'.format(_code), vd)
+                vd = vd.replace(_sym, _code + ' ')
             num = None
             for word in vd.split():
                 try:
@@ -825,11 +899,11 @@ def respond(voice_data):
                     reply(f"{num} minutes equals {_fmt(num * 60, 0)} seconds")
                 else:
                     reply(f"{num} seconds equals {_fmt(num / 60, 4)} minutes")
-            # ── Currency (frankfurter.app — free, no key) ─────────────────────
-            elif any(c in vd for c in ['usd', 'eur', 'gbp', 'inr', 'jpy', 'cad', 'aud', 'chf', 'aed']):
+            # ── Currency (open.er-api.com — free, no key) ─────────────────────
+            elif any(c in vd for c in ['usd', 'eur', 'gbp', 'inr', 'jpy', 'cad', 'aud', 'chf', 'aed', 'cny', 'sgd', 'mxn']):
                 try:
                     import urllib.request, json as _json, ssl as _ssl
-                    currencies = ['usd', 'eur', 'gbp', 'inr', 'jpy', 'cad', 'aud', 'chf', 'aed']
+                    currencies = ['usd', 'eur', 'gbp', 'inr', 'jpy', 'cad', 'aud', 'chf', 'aed', 'cny', 'sgd', 'mxn']
                     parts = vd.split('to')
                     from_cur, to_cur = None, None
                     if len(parts) >= 2:
@@ -842,8 +916,9 @@ def respond(voice_data):
                         ssl_ctx = _ssl.create_default_context()
                         ssl_ctx.check_hostname = False
                         ssl_ctx.verify_mode = _ssl.CERT_NONE
-                        api_url = f"https://api.frankfurter.app/latest?from={from_cur}&to={to_cur}"
-                        with urllib.request.urlopen(api_url, timeout=8, context=ssl_ctx) as resp:
+                        api_url = f"https://open.er-api.com/v6/latest/{from_cur}"
+                        req = urllib.request.Request(api_url, headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req, timeout=8, context=ssl_ctx) as resp:
                             data = _json.loads(resp.read().decode())
                         rate = data['rates'][to_cur]
                         reply(f"{num} {from_cur} equals {num * rate:.2f} {to_cur}")
