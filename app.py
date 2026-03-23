@@ -70,6 +70,8 @@ class ChatBot:
             'clipboard history', 'show clipboard', 'clipboard list',
             'paste item', 'paste item 1', 'paste item 2', 'paste item 3',
             'clear clipboard',
+            'show conversation history', 'conversation history', 'clear memory',
+            'forget conversation', 'reset memory', 'memory status',
             'confirm', 'cancel'
         ]
 
