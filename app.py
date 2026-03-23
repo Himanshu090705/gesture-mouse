@@ -67,6 +67,9 @@ class ChatBot:
             'cleanup desktop', 'empty recycle bin', 'startup apps status', 'network speed test',
             'find file', 'find folder', 'find my', 'search for file', 'locate file',
             'open file', 'open result',
+            'clipboard history', 'show clipboard', 'clipboard list',
+            'paste item', 'paste item 1', 'paste item 2', 'paste item 3',
+            'clear clipboard',
             'confirm', 'cancel'
         ]
 

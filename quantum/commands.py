@@ -305,6 +305,55 @@ def respond(voice_data):
             keyboard.release('c')
         reply('Copied')
 
+    elif 'clipboard history' in voice_data or 'show clipboard' in voice_data or 'clipboard list' in voice_data:
+        from quantum.clipboard import get_history
+        history = get_history()
+        if not history:
+            reply("Your clipboard history is empty. Copy something and I'll start tracking it.")
+        else:
+            lines = [f"{n}. {preview}" for n, preview in history]
+            reply("Here's your clipboard history:<br>" + "<br>".join(lines) + "<br>Say 'paste item 2' to paste any entry.")
+
+    elif 'clear clipboard' in voice_data:
+        from quantum.clipboard import clear_history
+        clear_history()
+        reply("Clipboard history cleared.")
+
+    elif any(kw in voice_data for kw in ('paste item', 'paste number', 'paste entry', 'paste the')):
+        from quantum.clipboard import paste_item, get_history, ordinal
+        import re as _re
+        # Parse ordinals like "paste 2nd item", "paste item 3", "paste the third"
+        ordinal_map = {
+            'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5,
+            'sixth': 6, 'seventh': 7, 'eighth': 8, 'ninth': 9, 'tenth': 10,
+        }
+        n = None
+        for word, num in ordinal_map.items():
+            if word in voice_data:
+                n = num
+                break
+        if n is None:
+            m = _re.search(r'\d+', voice_data)
+            if m:
+                n = int(m.group())
+        if n is None:
+            history = get_history()
+            if history:
+                reply("Which item? Say 'paste item 1' through 'paste item " + str(len(history)) + "'.")
+            else:
+                reply("Clipboard history is empty.")
+        else:
+            ok = paste_item(n)
+            if ok:
+                reply(f"Pasting {ordinal(n)} clipboard item.")
+            else:
+                from quantum.clipboard import get_history as _gh
+                count = len(_gh())
+                if count == 0:
+                    reply("Clipboard history is empty.")
+                else:
+                    reply(f"I only have {count} item{'s' if count > 1 else ''} in clipboard history.")
+
     elif 'page' in voice_data or 'pest' in voice_data or 'paste' in voice_data:
         with keyboard.pressed(CMD_KEY):
             keyboard.press('v')
