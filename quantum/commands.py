@@ -1284,6 +1284,36 @@ def respond(voice_data):
             reply(llm_helper._get_fallback_response("appreciation"))
 
     # -----------------------------------------------------------------------
+    # LANGCHAIN MEMORY MANAGEMENT
+    # -----------------------------------------------------------------------
+    elif 'show conversation history' in voice_data or 'what did i say' in voice_data or 'conversation history' in voice_data:
+        try:
+            from quantum.langchain_agent import get_memory_summary
+            history = get_memory_summary()
+            if not history:
+                reply("No conversation history yet. The memory fills up as we chat.")
+            else:
+                lines = [f"{role}: {preview}" for role, preview in history]
+                reply("Conversation so far:\n" + "\n".join(lines))
+        except Exception:
+            reply("Memory not available yet.")
+
+    elif 'clear memory' in voice_data or 'forget conversation' in voice_data or 'reset memory' in voice_data:
+        try:
+            from quantum.langchain_agent import clear_memory
+            clear_memory()
+            reply("Conversation memory cleared. Starting fresh.")
+        except Exception:
+            reply("Memory not initialised yet — nothing to clear.")
+
+    elif 'memory status' in voice_data:
+        try:
+            from quantum.langchain_agent import get_memory_summary
+            history = get_memory_summary()
+            count = len(history) // 2
+            reply(f"I have {count} exchange{'s' if count != 1 else ''} in memory (last 8 kept).")
+        except Exception:
+            reply("Memory not available.")
     # COMMAND HISTORY
     # -----------------------------------------------------------------------
     elif 'history search' in voice_data or 'search history' in voice_data:
@@ -1667,37 +1697,49 @@ def respond(voice_data):
                 app.ChatBot.addAppMsg(filestr)
 
     else:
-        import random as _random
-        _unknown_responses = [
-            "Hmm, that's beyond my current abilities. Try asking something else!",
-            "I'm not sure how to help with that one. Got another command?",
-            "That's outside my skill set for now. Maybe I'll learn it someday!",
-            "I didn't quite get that. Could you try rephrasing?",
-            "Not in my command book yet! Try 'help' to see what I can do.",
-            "That one stumped me. I'm good, but not that good... yet.",
-            "I wish I could help with that, but it's not something I support.",
-            "Interesting request, but that's a no from me. Try something else!",
-            "I'm drawing a blank on that. Ask me something different?",
-            "That command doesn't ring a bell. Type 'help' for a full list.",
-            "Oops, I don't know how to do that. But I'm always learning!",
-            "I heard you, but I don't know what to do with that. Try 'help'.",
-            "That's a new one for me! Unfortunately, I can't handle it right now.",
-            "Not quite in my repertoire. What else can I do for you?",
-            "I'm Quantum, not magic — that one's out of my range!",
-            "My circuits are drawing a blank on that one.",
-            "Even I have limits — and that's one of them. For now!",
-            "I processed that and came up with... nothing. Sorry!",
-            "That's above my pay grade. Try a different command?",
-            "Unknown territory! I'd explore it, but I don't have a map.",
-            "I'm still growing — that feature hasn't been added to me yet.",
-            "Did you mean something else? I couldn't match that to any command.",
-            "Request received, capability not found. Try 'help' for ideas.",
-            "I'm confident I can do a lot — just not that. Not yet, anyway.",
-            "That sailed right over my head. What else can I do for you?",
-            "Scanning knowledge base... command not found. Try rephrasing?",
-            "I'd love to help, but that one's not in my arsenal.",
-            "Interesting! But I have no idea how to do that. Ask me something else.",
-            "My best guess is that you want something I don't support — yet.",
-            "That's a mystery to me. Type 'help' and let's find something I can do!",
-        ]
-        reply(_random.choice(_unknown_responses))
+        # ── Tier 1: LangChain agent (memory + tool calling) ──────────────────
+        _lc_response = None
+        try:
+            from quantum import langchain_agent as _lc
+            _lc_response = _lc.run(voice_data)
+        except Exception as _lc_err:
+            print(f"[LangChain] Skipped: {_lc_err}")
+
+        if _lc_response:
+            reply(_lc_response)
+        else:
+            # ── Tier 2: random static fallback (unchanged) ───────────────────
+            import random as _random
+            _unknown_responses = [
+                "Hmm, that's beyond my current abilities. Try asking something else!",
+                "I'm not sure how to help with that one. Got another command?",
+                "That's outside my skill set for now. Maybe I'll learn it someday!",
+                "I didn't quite get that. Could you try rephrasing?",
+                "Not in my command book yet! Try 'help' to see what I can do.",
+                "That one stumped me. I'm good, but not that good... yet.",
+                "I wish I could help with that, but it's not something I support.",
+                "Interesting request, but that's a no from me. Try something else!",
+                "I'm drawing a blank on that. Ask me something different?",
+                "That command doesn't ring a bell. Type 'help' for a full list.",
+                "Oops, I don't know how to do that. But I'm always learning!",
+                "I heard you, but I don't know what to do with that. Try 'help'.",
+                "That's a new one for me! Unfortunately, I can't handle it right now.",
+                "Not quite in my repertoire. What else can I do for you?",
+                "I'm Quantum, not magic — that one's out of my range!",
+                "My circuits are drawing a blank on that one.",
+                "Even I have limits — and that's one of them. For now!",
+                "I processed that and came up with... nothing. Sorry!",
+                "That's above my pay grade. Try a different command?",
+                "Unknown territory! I'd explore it, but I don't have a map.",
+                "I'm still growing — that feature hasn't been added to me yet.",
+                "Did you mean something else? I couldn't match that to any command.",
+                "Request received, capability not found. Try 'help' for ideas.",
+                "I'm confident I can do a lot — just not that. Not yet, anyway.",
+                "That sailed right over my head. What else can I do for you?",
+                "Scanning knowledge base... command not found. Try rephrasing?",
+                "I'd love to help, but that one's not in my arsenal.",
+                "Interesting! But I have no idea how to do that. Ask me something else.",
+                "My best guess is that you want something I don't support — yet.",
+                "That's a mystery to me. Type 'help' and let's find something I can do!",
+            ]
+            reply(_random.choice(_unknown_responses))

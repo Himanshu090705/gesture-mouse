@@ -87,6 +87,13 @@
 - quantum type [text]
 - quantum copy
 - quantum paste
+- quantum clipboard history
+- quantum show clipboard
+- quantum clipboard list
+- quantum paste item [N]          (e.g. paste item 2)
+- quantum paste number [N]
+- quantum paste the [ordinal]      (e.g. paste the third item)
+- quantum clear clipboard
 
 ---
 
@@ -122,6 +129,15 @@
 - Middle finger up → Left click
 - Index finger up → Right click
 - Two fingers closed → Double click
+
+## Gesture Settings (UI)
+Open the **Settings** panel (gear icon, top-right corner of chat window) to tune:
+- Gesture stability (1–10) — higher = less jitter, slower response
+- Pinch sensitivity (0.1–0.9) — lower = more sensitive pinch
+- Scroll speed (1–10)
+- Cursor speed (0.5–5.0)
+
+Changes take effect the next time gesture recognition is started.
 
 ---
 
@@ -327,6 +343,116 @@ example: define javascript
 ## Confirmation
 - confirm
 - cancel
+
+---
+
+---
+
+# 🔍 24. File Search & Open by Voice
+
+Search for files and folders anywhere on the computer by name.
+
+- quantum find file [query]
+- quantum find folder [query]
+- quantum search for file [query]
+- quantum find my [query]
+- quantum locate file [query]
+
+Returns a numbered list of up to 5 matches. Follow up with:
+
+- quantum open file [N]       (opens the Nth result from the last search)
+- quantum open result [N]
+- quantum open file [name]    (fresh search + open if single result found)
+
+Examples:
+- quantum find file resume
+- quantum find my project report
+- quantum open file 2
+
+---
+
+# 📋 25. Clipboard History
+
+Tracks the last 10 items copied to the clipboard (auto-monitored in background). History persists across sessions in `~/.quantum_clipboard.json`.
+
+- quantum clipboard history
+- quantum show clipboard
+- quantum clipboard list        — list recent copied items (numbered)
+- quantum paste item [N]        — copy item N back to clipboard and paste it
+- quantum paste number [N]
+- quantum paste the [ordinal]   — e.g. "paste the second item", "paste the first"
+- quantum clear clipboard       — wipe the entire clipboard history
+
+Examples:
+- quantum show clipboard
+- quantum paste item 3
+- quantum paste the first item
+- quantum clear clipboard
+
+---
+
+# 🕓 26. Command History & Re-run
+
+All commands you say are tracked in a session history. Use voice commands to replay them, or use the **Up/Down arrow keys** in the chat input to cycle through previous inputs.
+
+- quantum history search [query]    — search history for commands matching [query]
+- quantum search history [query]
+- quantum run last command           — re-run the most recent non-meta command
+- quantum repeat last
+- quantum run again
+- quantum redo last
+- quantum repeat command
+- quantum run history [N]            — re-run entry N from last history search results
+- quantum run command number [N]
+- quantum rerun [N]
+
+**Up/Down arrows in chat input**: cycle through previous commands (shows `↑ History N / total` pill).
+
+Examples:
+- quantum history search weather
+- quantum run last command
+- quantum run history 2
+
+> Note: Meta-commands (run last, repeat, etc.) are excluded from re-run targets to prevent infinite loops.
+
+---
+
+# 🧠 27. LangChain Conversation Memory
+
+When no built-in command matches, Quantum automatically routes the input to the LangChain agent, which has conversation memory (last 8 exchanges) and 9 action tools. You can also manage the memory directly:
+
+- quantum show conversation history   — display recent conversation turns
+- quantum conversation history
+- quantum what did i say
+- quantum clear memory                — wipe all conversation memory
+- quantum forget conversation
+- quantum reset memory
+- quantum memory status               — show how many turns are in memory
+
+## Agent Tools Available
+The LangChain agent can automatically call these tools when appropriate:
+- `search_web` — opens Google search in browser
+- `open_application` — launches an app by name
+- `search_files` — finds files on disk
+- `get_weather` — current weather for a city
+- `calculate` — evaluates math expressions
+- `control_volume` — volume up/down/mute/unmute
+- `take_screenshot` — saves screenshot to Desktop
+- `get_datetime` — current date and time
+- `wikipedia_search` — 2-sentence Wikipedia summary
+
+## Configuration
+Requires a `.env` file with at least one key:
+```
+GEMINI_API_KEY=...    # primary LLM (gemini-2.5-flash)
+GROQ_API_KEY=...      # fallback LLM (llama-3.3-70b-versatile)
+```
+Without API keys, unknown commands fall back to static responses silently.
+
+Examples:
+- quantum what is the capital of France       → answered via LangChain
+- quantum what about its largest city         → uses memory ("its" = France)
+- quantum clear memory
 
 ---
 
