@@ -132,10 +132,16 @@ def _make_tools():
     @tool
     def take_screenshot() -> str:
         """Take a screenshot of the current screen and save it to the Desktop."""
-        import pyautogui, datetime
+        import datetime
         ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         path = os.path.expanduser(f'~/Desktop/screenshot_{ts}.png')
-        pyautogui.screenshot(path)
+        if _IS_MAC:
+            exit_code = os.system(f'screencapture -x "{path}"')
+            if exit_code != 0:
+                return "Screenshot failed — grant Screen Recording permission in System Preferences > Privacy & Security > Screen Recording"
+        else:
+            import pyautogui
+            pyautogui.screenshot(path)
         return f"Screenshot saved to {path}"
 
     @tool
@@ -178,36 +184,62 @@ _SYSTEM_PROMPT = (
 
 
 def _get_llm():
-    """Return best available LangChain LLM, or None."""
+    """
+    Return the best available LangChain LLM, or None.
+    Cascade: Groq → OpenRouter → Gemini  (same priority as llm_helper.py)
+    """
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except ImportError:
         pass
 
-    gemini_key = os.getenv('GEMINI_API_KEY', '')
-    if gemini_key:
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            return ChatGoogleGenerativeAI(
-                model='gemini-2.5-flash',
-                google_api_key=gemini_key,
-                temperature=0.3,
-            )
-        except Exception as e:
-            print(f"[LangChain] Gemini unavailable: {e}")
-
     groq_key = os.getenv('GROQ_API_KEY', '')
     if groq_key:
         try:
             from langchain_groq import ChatGroq
-            return ChatGroq(
+            llm = ChatGroq(
                 model='llama-3.3-70b-versatile',
                 groq_api_key=groq_key,
                 temperature=0.3,
             )
+            print("[LangChain] Using Groq (llama-3.3-70b-versatile)")
+            return llm
         except Exception as e:
             print(f"[LangChain] Groq unavailable: {e}")
+
+    openrouter_key = os.getenv('OPENROUTER_API_KEY', '')
+    if openrouter_key:
+        try:
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(
+                model='deepseek/deepseek-chat-v3-0324:free',
+                openai_api_key=openrouter_key,
+                openai_api_base='https://openrouter.ai/api/v1',
+                temperature=0.3,
+                default_headers={
+                    "HTTP-Referer": "https://github.com/himanshujagtap/gesture-mouse",
+                    "X-Title": "Quantum Assistant",
+                },
+            )
+            print("[LangChain] Using OpenRouter (deepseek-chat-v3-0324:free)")
+            return llm
+        except Exception as e:
+            print(f"[LangChain] OpenRouter unavailable: {e}")
+
+    gemini_key = os.getenv('GEMINI_API_KEY', '')
+    if gemini_key:
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            llm = ChatGoogleGenerativeAI(
+                model='gemini-2.5-flash',
+                google_api_key=gemini_key,
+                temperature=0.3,
+            )
+            print("[LangChain] Using Gemini (gemini-2.5-flash)")
+            return llm
+        except Exception as e:
+            print(f"[LangChain] Gemini unavailable: {e}")
 
     return None
 

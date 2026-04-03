@@ -314,6 +314,10 @@ def respond(voice_data):
             lines = [f"{n}. {preview}" for n, preview in history]
             reply("Here's your clipboard history:<br>" + "<br>".join(lines) + "<br>Say 'paste item 2' to paste any entry.")
 
+    elif voice_data.strip() in ('clear', 'clear chat', 'clear screen', 'clear console'):
+        app.ChatBot.clearChat()
+        reply("Console cleared.")
+
     elif 'clear clipboard' in voice_data:
         from quantum.clipboard import clear_history
         clear_history()
@@ -388,9 +392,20 @@ def respond(voice_data):
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"screenshot_{timestamp}.png"
         screenshot_path = os.path.join(os.path.expanduser('~'), 'Desktop', filename)
-        screenshot = pyautogui.screenshot()
-        screenshot.save(screenshot_path)
-        reply(f"Screenshot saved to Desktop as {filename}")
+        if IS_MAC:
+            exit_code = os.system(f'screencapture -x "{screenshot_path}"')
+            if exit_code != 0:
+                reply("Screenshot failed. Grant Screen Recording permission in System Preferences > Privacy & Security > Screen Recording.")
+            else:
+                reply(f"Screenshot saved to Desktop as {filename}")
+        else:
+            try:
+                screenshot = pyautogui.screenshot()
+                screenshot.save(screenshot_path)
+                reply(f"Screenshot saved to Desktop as {filename}")
+            except Exception as e:
+                print(f"Screenshot error: {e}")
+                reply("Screenshot failed. Check accessibility permissions.")
 
     elif 'scroll up' in voice_data:
         reply("Scrolling up")
@@ -502,7 +517,7 @@ def respond(voice_data):
     # -----------------------------------------------------------------------
     # APP CONTROL
     # -----------------------------------------------------------------------
-    elif 'open app' in voice_data or ('open' in voice_data and not state.file_exp_status):
+    elif 'open app' in voice_data or (voice_data.split()[0] == 'open' if voice_data.split() else False):
         app_name = voice_data.replace('open app', '').replace('open', '').strip()
         if app_name:
             try:
@@ -516,10 +531,9 @@ def respond(voice_data):
                         'discord': 'Discord', 'zoom': 'zoom.us'
                     }
                     app_to_open = mac_apps.get(app_name.lower(), app_name.title())
-                    check_cmd = f'mdfind "kMDItemKind == Application && kMDItemFSName == \'{app_to_open}.app\'" 2>/dev/null'
-                    result = os.popen(check_cmd).read().strip()
-                    if result:
-                        os.system(f'open -a "{app_to_open}" 2>/dev/null')
+                    import subprocess as _sp
+                    r = _sp.run(['open', '-a', app_to_open], capture_output=True)
+                    if r.returncode == 0:
                         reply(f"Opening {app_to_open}")
                     else:
                         reply(f"Sorry, {app_name} is not installed on your system. Please install it first.")
@@ -777,8 +791,7 @@ def respond(voice_data):
                 target_lang = parts[1].strip()
                 if text:
                     try:
-                        from googletrans import Translator
-                        translator = Translator()
+                        from deep_translator import GoogleTranslator
                         lang_codes = {
                             'spanish': 'es', 'french': 'fr', 'german': 'de', 'italian': 'it',
                             'portuguese': 'pt', 'russian': 'ru', 'japanese': 'ja', 'chinese': 'zh',
@@ -786,10 +799,10 @@ def respond(voice_data):
                             'swedish': 'sv', 'polish': 'pl', 'turkish': 'tr', 'greek': 'el'
                         }
                         lang_code = lang_codes.get(target_lang.lower(), target_lang[:2])
-                        result = translator.translate(text, dest=lang_code)
-                        reply(f"'{text}' in {target_lang} is: {result.text}")
+                        result = GoogleTranslator(source='auto', target=lang_code).translate(text)
+                        reply(f"'{text}' in {target_lang} is: {result}")
                     except ImportError:
-                        reply("Translation library not installed. Install with: pip install googletrans==4.0.0-rc1")
+                        reply("Translation library not installed. Install with: pip install deep-translator")
                     except Exception as e:
                         print(f"Translation error: {e}")
                         reply("Translation failed. Try again or check your internet connection.")
@@ -1287,33 +1300,25 @@ def respond(voice_data):
     # LANGCHAIN MEMORY MANAGEMENT
     # -----------------------------------------------------------------------
     elif 'show conversation history' in voice_data or 'what did i say' in voice_data or 'conversation history' in voice_data:
-        try:
-            from quantum.langchain_agent import get_memory_summary
-            history = get_memory_summary()
-            if not history:
-                reply("No conversation history yet. The memory fills up as we chat.")
-            else:
-                lines = [f"{role}: {preview}" for role, preview in history]
-                reply("Conversation so far:\n" + "\n".join(lines))
-        except Exception:
-            reply("Memory not available yet.")
+        history = state.conversation_log[-16:]
+        if not history:
+            reply("No conversation history yet. The memory fills up as we chat.")
+        else:
+            lines = [f"{role}: {text[:80]}{'…' if len(text) > 80 else ''}" for role, text in history]
+            reply("Conversation so far:<br>" + "<br>".join(lines))
 
     elif 'clear memory' in voice_data or 'forget conversation' in voice_data or 'reset memory' in voice_data:
+        state.conversation_log.clear()
         try:
             from quantum.langchain_agent import clear_memory
             clear_memory()
-            reply("Conversation memory cleared. Starting fresh.")
         except Exception:
-            reply("Memory not initialised yet — nothing to clear.")
+            pass
+        reply("Conversation memory cleared. Starting fresh.")
 
     elif 'memory status' in voice_data:
-        try:
-            from quantum.langchain_agent import get_memory_summary
-            history = get_memory_summary()
-            count = len(history) // 2
-            reply(f"I have {count} exchange{'s' if count != 1 else ''} in memory (last 8 kept).")
-        except Exception:
-            reply("Memory not available.")
+        count = len(state.conversation_log) // 2
+        reply(f"I have {count} exchange{'s' if count != 1 else ''} in memory (last 8 kept).")
     # COMMAND HISTORY
     # -----------------------------------------------------------------------
     elif 'history search' in voice_data or 'search history' in voice_data:

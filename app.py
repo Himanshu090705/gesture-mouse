@@ -89,7 +89,8 @@ class ChatBot:
             'history search', 'search history',
             'run last command', 'repeat last', 'run again',
             'run history', 'run history 1', 'run history 2',
-            'confirm', 'cancel'
+            'confirm', 'cancel',
+            'clear', 'clear chat', 'clear screen',
         ]
 
         partial_lower = partial_input.lower().strip()
@@ -139,9 +140,24 @@ class ChatBot:
     
     def addUserMsg(msg):
         eel.addUserMsg(msg)()
-    
+
     def addAppMsg(msg):
         eel.addAppMsg(msg)()
+        # Log to session conversation history
+        try:
+            import quantum.state as _state
+            _state.conversation_log.append(("Quantum", msg))
+            if len(_state.conversation_log) > 16:
+                _state.conversation_log.pop(0)
+        except Exception:
+            pass
+
+    def clearChat():
+        """Clear the chat canvas from Python (e.g. via voice command)."""
+        try:
+            eel.clearChat()()
+        except Exception:
+            pass
 
     def start():
         path = os.path.dirname(os.path.abspath(__file__))

@@ -13,6 +13,7 @@
 - quantum time
 - quantum date
 - quantum search [query]
+- quantum location          (prompts for a place, opens Google Maps)
 
 ---
 
@@ -31,17 +32,25 @@
 - quantum maximize
 - quantum close window
 - quantum lock
+- quantum lock screen
+
+## Screenshot
+- quantum screenshot
+- quantum take screenshot     (saves to Desktop with timestamp)
 
 ## Display & Scrolling
 - quantum scroll up
 - quantum scroll down
 - quantum brightness up
+- quantum increase brightness
 - quantum brightness down
+- quantum decrease brightness
 
 ## Audio
 - quantum volume up
 - quantum volume down
 - quantum mute
+- quantum unmute              (same key as mute — toggles)
 
 ---
 
@@ -77,6 +86,7 @@
 - quantum new tab
 - quantum close tab
 - quantum incognito
+- quantum private             (alias for incognito)
 - quantum refresh
 - quantum reload
 
@@ -164,10 +174,10 @@ Changes take effect the next time gesture recognition is started.
 
 - quantum sleep
 - quantum go to sleep
+- quantum bye                 (alias for sleep)
 - quantum wake up
 - quantum wake
 - quantum exit
-- quantum quit
 - quantum terminate
 
 ---
@@ -342,7 +352,14 @@ example: define javascript
 
 ## Confirmation
 - confirm
+- yes confirm
 - cancel
+- abort
+- nevermind
+- never mind
+
+## Network Speed (short alias)
+- quantum speed test          (alias for 'network speed test')
 
 ---
 
@@ -442,17 +459,115 @@ The LangChain agent can automatically call these tools when appropriate:
 - `wikipedia_search` — 2-sentence Wikipedia summary
 
 ## Configuration
-Requires a `.env` file with at least one key:
+Requires a `.env` file with at least one key (`LLM_PROVIDER=auto` tries all in order):
 ```
-GEMINI_API_KEY=...    # primary LLM (gemini-2.5-flash)
-GROQ_API_KEY=...      # fallback LLM (llama-3.3-70b-versatile)
+GROQ_API_KEY=...           # fastest, 14 400 req/day free
+OPENROUTER_API_KEY=...     # free models (DeepSeek, Mistral, Llama) — no daily hard quota
+GEMINI_API_KEY=...         # fallback (free tier exhausts quickly)
 ```
-Without API keys, unknown commands fall back to static responses silently.
+Without any key, unknown commands fall back to static responses silently.
 
 Examples:
 - quantum what is the capital of France       → answered via LangChain
 - quantum what about its largest city         → uses memory ("its" = France)
 - quantum clear memory
+
+---
+
+# 🖥️ 28. Dashboard
+
+Open the live stats dashboard (gesture heatmap, command history, CPU/RAM):
+
+- quantum show dashboard
+- quantum open dashboard
+- quantum dashboard
+
+Or click the **Dashboard** button in the top-left corner of the chat window.
+
+---
+
+# 🤌 29. Custom Gesture Management
+
+Create and manage your own gestures using the voice commands below.
+Each gesture is saved to `custom_gestures/` as a JSON file.
+
+## Record a new gesture
+- quantum train gesture [name]
+- quantum add gesture [name]
+
+Optional: specify what the gesture should do:
+- quantum train gesture [name] hotkey [keys]     (e.g. `train gesture wave hotkey ctrl+c`)
+- quantum train gesture [name] open [app]         (e.g. `train gesture thumbs_up open Calculator`)
+- quantum train gesture [name] type [text]        (e.g. `train gesture peace type Hello World`)
+
+After running, a camera window opens — press **SPACE** 25 times to capture samples, then **ENTER** to save.
+
+## List gestures
+- quantum list custom gestures
+- quantum show custom gestures
+- quantum list gestures
+
+## Delete a gesture
+- quantum delete gesture [name]
+- quantum remove gesture [name]
+
+Examples:
+- quantum train gesture thumbs_up
+- quantum list custom gestures
+- quantum delete gesture wave
+
+---
+
+# 🔀 30. Context-Aware Commands
+
+These commands change behaviour based on which app is currently in focus.
+
+## App detection
+- quantum what app               — tells you which app is active and its category
+- quantum current app
+- quantum which app
+
+## Code / Terminal (VS Code, PyCharm, Terminal)
+- quantum run code
+- quantum build project
+- quantum run project
+- quantum format code
+- quantum format document
+- quantum comment line
+- quantum comment out
+- quantum toggle comment
+- quantum go to line
+- quantum split editor
+- quantum find in files
+- quantum global search
+- quantum open terminal here
+- quantum new terminal
+- quantum save file
+- quantum save all
+
+## Browser / Finder navigation
+- quantum go back
+- quantum go forward
+- quantum next tab
+- quantum previous tab
+- quantum prev tab
+- quantum zoom in
+- quantum zoom out
+
+> **Note:** Commands that require a specific app type (e.g. VS Code) will say so if the wrong app is active.
+
+---
+
+# 🧹 31. Clear Chat Canvas
+
+Wipe the entire chat window — just like `clear` in a real terminal.
+
+- clear                          (type in the input box and press Enter)
+- quantum clear chat             (voice command)
+- quantum clear screen
+- quantum clear console
+
+A dim `Console cleared — HH:MM` line is left behind so you know when it happened.
 
 ---
 

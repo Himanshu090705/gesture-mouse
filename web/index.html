@@ -1163,8 +1163,8 @@
       let currentSuggestions = [];
       let selectedSuggestionIndex = -1;
 
-      // Command history
-      let cmdHistory = [];
+      // Command history — loaded from localStorage so it persists across sessions
+      let cmdHistory = JSON.parse(localStorage.getItem('quantumCmdHistory') || '[]');
       let historyIndex = -1;
       let historyTempInput = "";
 
@@ -1294,42 +1294,45 @@
             ],
           );
         }
-        // Arrow down — history navigation OR autocomplete (never both)
+        // Arrow down — autocomplete when dropdown open, else history forward
         else if (e.key === "ArrowDown") {
           e.preventDefault();
-          if (historyIndex !== -1) {
-            // Already in history mode — go forward
-            historyIndex++;
-            if (historyIndex >= cmdHistory.length) {
-              historyIndex = -1;
-              userInput.value = "";
-            } else {
-              userInput.value = cmdHistory[historyIndex];
-            }
-          } else if (currentSuggestions.length > 0) {
+          const dropdownOpen = suggestionsContainer.classList.contains("active");
+          if (dropdownOpen) {
             selectedSuggestionIndex = Math.min(
               selectedSuggestionIndex + 1,
               currentSuggestions.length - 1,
             );
             highlightSuggestion(selectedSuggestionIndex);
-          }
-        }
-        // Arrow up — enter/continue history (bash-style) OR autocomplete
-        else if (e.key === "ArrowUp") {
-          e.preventDefault();
-          if (userInput.value.trim() === "" || historyIndex !== -1) {
-            // Enter or continue history navigation
-            if (cmdHistory.length > 0) {
-              if (historyIndex === -1) {
-                historyIndex = cmdHistory.length - 1;
-              } else if (historyIndex > 0) {
-                historyIndex--;
-              }
+          } else if (historyIndex !== -1) {
+            // Move forward through history
+            historyIndex++;
+            if (historyIndex >= cmdHistory.length) {
+              // Reached the end — restore whatever was typed before history browsing
+              historyIndex = -1;
+              userInput.value = historyTempInput;
+              historyTempInput = "";
+            } else {
               userInput.value = cmdHistory[historyIndex];
             }
-          } else if (currentSuggestions.length > 0) {
+          }
+        }
+        // Arrow up — autocomplete when dropdown open, else history backward (bash-style)
+        else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          const dropdownOpen = suggestionsContainer.classList.contains("active");
+          if (dropdownOpen) {
             selectedSuggestionIndex = Math.max(selectedSuggestionIndex - 1, 0);
             highlightSuggestion(selectedSuggestionIndex);
+          } else if (cmdHistory.length > 0) {
+            if (historyIndex === -1) {
+              // First Up press — save current input and jump to most recent entry
+              historyTempInput = userInput.value;
+              historyIndex = cmdHistory.length - 1;
+            } else if (historyIndex > 0) {
+              historyIndex--;
+            }
+            userInput.value = cmdHistory[historyIndex];
           }
         }
         // Escape - close suggestions
@@ -1362,12 +1365,31 @@
         }
       });
 
-      // LRU command history helper (max 20 entries)
+      // ── Clear chat canvas ──────────────────────────────────────────────────
+      eel.expose(clearChat);
+      function clearChat() {
+        const container = document.getElementById("messages");
+        container.innerHTML = "";
+        const div = document.createElement("div");
+        div.className = "message bot";
+        div.innerHTML = `
+          <div class="avatar bot"><i class="fas fa-terminal"></i></div>
+          <div>
+            <div class="bubble bot" style="font-size:11px;opacity:0.5;font-family:monospace;letter-spacing:0.3px;">
+              Console cleared &mdash; ${getTime()}
+            </div>
+          </div>`;
+        container.appendChild(div);
+      }
+
+      // LRU command history helper (max 100 entries, persisted to localStorage)
       function addToHistory(cmd) {
+        if (cmd.trim().toLowerCase() === 'clear') return; // don't litter history with clear
         const idx = cmdHistory.indexOf(cmd);
         if (idx !== -1) cmdHistory.splice(idx, 1); // remove duplicate → will re-add at end
         cmdHistory.push(cmd); // most recent at end
-        if (cmdHistory.length > 20) cmdHistory.shift(); // evict oldest (LRU)
+        if (cmdHistory.length > 100) cmdHistory.shift(); // evict oldest
+        localStorage.setItem('quantumCmdHistory', JSON.stringify(cmdHistory));
       }
 
       // Send button handler
@@ -1376,13 +1398,26 @@
         .addEventListener("click", function () {
           const input = document.getElementById("userInput");
           const msg = input.value.trim();
-          if (msg) {
-            addToHistory(msg);
-            historyIndex = -1;
-            historyTempInput = "";
-            eel.getUserInput(msg);
-            input.value = "";
+          if (!msg) return;
+
+          historyIndex = -1;
+          historyTempInput = "";
+          input.value = "";
+
+          // Always close suggestions when sending — programmatic clear doesn't fire input event
+          const sc = document.getElementById("suggestionsContainer");
+          if (sc) sc.classList.remove("active");
+          currentSuggestions = [];
+          selectedSuggestionIndex = -1;
+
+          // `clear` is handled entirely client-side — never sent to Python
+          if (msg.toLowerCase() === "clear") {
+            clearChat();
+            return;
           }
+
+          addToHistory(msg);
+          eel.getUserInput(msg);
         });
       // ── Timestamp helper ──────────────────────────────────────────────────
       function getTime() {

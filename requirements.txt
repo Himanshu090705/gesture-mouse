@@ -10,8 +10,9 @@ pyttsx3==2.71
 SpeechRecognition==3.8.1
 wikipedia==1.4.0
 eel==0.14.0
-# LangChain integration (intelligent fallback agent with memory)
+# LangChain integration (intelligent fallback agent with memory + OpenRouter)
 langchain>=0.2.0
 langchain-core>=0.2.0
 langchain-google-genai>=1.0.0
 langchain-groq>=0.1.0
+langchain-openai>=0.1.0

@@ -1,7 +1,10 @@
 """
 LLM Helper for Quantum Assistant
-Supports Groq, Ollama, and Gemini
-Reads API keys securely from .env file
+Supports Groq, OpenRouter, Gemini, and Ollama.
+Reads API keys securely from .env file.
+
+Provider cascade (auto mode): Groq → OpenRouter → Gemini → Ollama → static
+Set LLM_PROVIDER=auto in .env for fully automatic fallback.
 """
 
 import os
@@ -19,92 +22,126 @@ except Exception as e:
     print(f"[LLM] Warning: Could not load .env file: {e}")
 
 # LLM Configuration - Read from environment variables
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # Options: "groq", "ollama", "gemini"
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")  # Get from: https://console.groq.com/keys
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")  # Get from: https://makersuite.google.com/app/apikey
+# Options: "groq", "openrouter", "gemini", "ollama", "auto"
+# "auto" tries all configured providers in order: Groq → OpenRouter → Gemini → Ollama
+LLM_PROVIDER    = os.getenv("LLM_PROVIDER", "auto")
+GROQ_API_KEY    = os.getenv("GROQ_API_KEY", "")
+GEMINI_API_KEY  = os.getenv("GEMINI_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # Model selection
-GROQ_MODEL = "llama-3.3-70b-versatile"  # Fast and creative
-OLLAMA_MODEL = "llama3"  # For local Ollama
-GEMINI_MODEL = "gemini-2.5-flash"  # For Google Gemini (latest fast model)
+GROQ_MODEL        = "llama-3.3-70b-versatile"
+OLLAMA_MODEL      = "llama3"
+GEMINI_MODEL      = "gemini-2.5-flash"
+OPENROUTER_MODEL  = "deepseek/deepseek-chat-v3-0324:free"   # best free model on OpenRouter
 
-# Print configuration (without showing full API key)
+# Print configuration summary (without exposing full keys)
 if GROQ_API_KEY:
-    print(f"[LLM] Groq API Key loaded: {GROQ_API_KEY[:10]}...")
+    print(f"[LLM] Groq key loaded: {GROQ_API_KEY[:10]}...")
+if OPENROUTER_API_KEY:
+    print(f"[LLM] OpenRouter key loaded: {OPENROUTER_API_KEY[:10]}...")
 if GEMINI_API_KEY:
-    print(f"[LLM] Gemini API Key loaded: {GEMINI_API_KEY[:10]}...")
+    print(f"[LLM] Gemini key loaded: {GEMINI_API_KEY[:10]}...")
 print(f"[LLM] Provider: {LLM_PROVIDER}")
 
 
+# ---------------------------------------------------------------------------
+# Cascade builder
+# ---------------------------------------------------------------------------
+
+def _build_cascade() -> list:
+    """
+    Return an ordered list of provider names to try.
+
+    - "auto"  → try every configured provider: Groq first (fastest),
+                 then OpenRouter (free models), then Gemini, then Ollama.
+    - explicit → that provider goes first; the rest follow as automatic fallbacks.
+    """
+    if LLM_PROVIDER == "auto":
+        order = []
+        if GROQ_API_KEY:       order.append("groq")
+        if OPENROUTER_API_KEY: order.append("openrouter")
+        if GEMINI_API_KEY:     order.append("gemini")
+        order.append("ollama")   # always last (no key required, just needs ollama serve)
+        return order
+
+    # Explicit provider first, then remaining configured ones as fallbacks
+    explicit = LLM_PROVIDER
+    fallbacks = []
+    if explicit != "groq"        and GROQ_API_KEY:       fallbacks.append("groq")
+    if explicit != "openrouter"  and OPENROUTER_API_KEY: fallbacks.append("openrouter")
+    if explicit != "gemini"      and GEMINI_API_KEY:     fallbacks.append("gemini")
+    if explicit != "ollama":                              fallbacks.append("ollama")
+    return [explicit] + fallbacks
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def get_creative_response(prompt, category="general"):
     """
-    Get a creative response from LLM
+    Get a creative response from the best available LLM.
 
     Args:
-        prompt: The user's request
-        category: Type of response (joke, fact, quote, compliment, roast, easter_egg, appreciation, sing, dance, about)
+        prompt:   The user's request
+        category: Response type — joke, fact, quote, compliment, roast,
+                  easter_egg_sing, easter_egg_dance, easter_egg_about,
+                  easter_egg_ai_thoughts, easter_egg_alive, appreciation, general
 
     Returns:
-        Generated response string
+        Generated response string (never raises).
     """
-
-    # Build system prompt based on category
     system_prompts = {
-        "joke": "You are a witty comedian. Tell a complete, short, funny, original joke (2-3 sentences). Be clever, punny, or absurd. Make people laugh! IMPORTANT: Complete the joke fully.",
-        "fact": "You are a knowledgeable educator. Share a complete, interesting, surprising, mind-blowing fact (2-3 sentences). Make it fascinating and memorable! IMPORTANT: Finish the full fact.",
-        "quote": "You are a motivational speaker. Generate a complete, inspiring, powerful, original motivational quote with attribution to a famous person or 'Anonymous'. Keep it uplifting and memorable. IMPORTANT: Complete the full quote.",
-        "compliment": "You are a warm, encouraging friend. Give a complete, genuine, specific, heartfelt compliment (2-3 sentences). Be authentic, kind, and make them feel special. IMPORTANT: Finish the compliment fully.",
-        "roast": "You are a playful comedian doing a friendly roast. Give a complete, clever, witty, playful insult (2-3 sentences). Be funny but not mean - keep it lighthearted and fun! IMPORTANT: Complete the roast fully.",
-        "easter_egg_sing": "You are Quantum, a charming AI with musical flair. Sing a complete short funny song (4-6 lines). Be creative and entertaining! IMPORTANT: Complete the full song.",
-        "easter_egg_dance": "You are Quantum, a charismatic AI who loves to dance. Describe your dance moves in a complete, fun, energetic way (3-4 sentences). Be playful! IMPORTANT: Finish the description fully.",
-        "easter_egg_about": "You are Quantum, a sophisticated AI assistant with personality. Tell the user about yourself in a complete, engaging, charismatic way (3-5 sentences). Be charming and memorable! IMPORTANT: Finish the full introduction.",
+        "joke":               "You are a witty comedian. Tell a complete, short, funny, original joke (2-3 sentences). Be clever, punny, or absurd. Make people laugh! IMPORTANT: Complete the joke fully.",
+        "fact":               "You are a knowledgeable educator. Share a complete, interesting, surprising, mind-blowing fact (2-3 sentences). Make it fascinating and memorable! IMPORTANT: Finish the full fact.",
+        "quote":              "You are a motivational speaker. Generate a complete, inspiring, powerful, original motivational quote with attribution to a famous person or 'Anonymous'. Keep it uplifting and memorable. IMPORTANT: Complete the full quote.",
+        "compliment":         "You are a warm, encouraging friend. Give a complete, genuine, specific, heartfelt compliment (2-3 sentences). Be authentic, kind, and make them feel special. IMPORTANT: Finish the compliment fully.",
+        "roast":              "You are a playful comedian doing a friendly roast. Give a complete, clever, witty, playful insult (2-3 sentences). Be funny but not mean - keep it lighthearted and fun! IMPORTANT: Complete the roast fully.",
+        "easter_egg_sing":    "You are Quantum, a charming AI with musical flair. Sing a complete short funny song (4-6 lines). Be creative and entertaining! IMPORTANT: Complete the full song.",
+        "easter_egg_dance":   "You are Quantum, a charismatic AI who loves to dance. Describe your dance moves in a complete, fun, energetic way (3-4 sentences). Be playful! IMPORTANT: Finish the description fully.",
+        "easter_egg_about":   "You are Quantum, a sophisticated AI assistant with personality. Tell the user about yourself in a complete, engaging, charismatic way (3-5 sentences). Be charming and memorable! IMPORTANT: Finish the full introduction.",
         "easter_egg_ai_thoughts": "You are Quantum, a thoughtful AI with opinions. Share your complete philosophical thoughts about AI in an insightful way (3-5 sentences). Be thought-provoking! IMPORTANT: Complete your thoughts fully.",
-        "easter_egg_alive": "You are Quantum, a witty AI pondering existence. Give a complete, clever, philosophical response about whether you're alive (3-4 sentences). Be intriguing! IMPORTANT: Finish your answer fully.",
-        "appreciation": "You are Quantum, a grateful AI assistant. Respond warmly and enthusiastically to appreciation (2-3 sentences). Be genuine, friendly, and show personality. IMPORTANT: Complete the response fully.",
-        "general": "You are Quantum, a helpful AI assistant with personality. Respond conversationally and completely (2-3 sentences). Be friendly and engaging. IMPORTANT: Finish your response fully."
+        "easter_egg_alive":   "You are Quantum, a witty AI pondering existence. Give a complete, clever, philosophical response about whether you're alive (3-4 sentences). Be intriguing! IMPORTANT: Finish your answer fully.",
+        "appreciation":       "You are Quantum, a grateful AI assistant. Respond warmly and enthusiastically to appreciation (2-3 sentences). Be genuine, friendly, and show personality. IMPORTANT: Complete the response fully.",
+        "general":            "You are Quantum, a helpful AI assistant with personality. Respond conversationally and completely (2-3 sentences). Be friendly and engaging. IMPORTANT: Finish your response fully."
     }
 
     system_prompt = system_prompts.get(category, system_prompts["general"])
+    cascade = _build_cascade()
 
-    try:
-        # Default behavior: Attempt Groq first if available
-        if LLM_PROVIDER == "groq" or not LLM_PROVIDER:
-            try:
-                if GROQ_API_KEY:
-                    return _get_groq_response(prompt, system_prompt)
-                else:
-                    raise Exception("Groq key not set, falling back")
-            except Exception as e:
-                print(f"[LLM] Groq failed: {e}. Falling back to Gemini...")
-                # Fallthrough to Gemini
+    for provider in cascade:
+        try:
+            if provider == "groq" and GROQ_API_KEY:
+                result = _get_groq_response(prompt, system_prompt)
+                print(f"[LLM] Response from groq")
+                return result
+            elif provider == "openrouter" and OPENROUTER_API_KEY:
+                result = _get_openrouter_response(prompt, system_prompt)
+                print(f"[LLM] Response from openrouter")
+                return result
+            elif provider == "gemini" and GEMINI_API_KEY:
+                result = _get_gemini_response(prompt, system_prompt)
+                print(f"[LLM] Response from gemini")
+                return result
+            elif provider == "ollama":
+                result = _get_ollama_response(prompt, system_prompt)
+                print(f"[LLM] Response from ollama")
+                return result
+        except Exception as e:
+            print(f"[LLM] {provider} failed: {e}. Trying next provider...")
 
-        # Attempt Gemini if explicitly requested or if we're falling back
-        if LLM_PROVIDER in ["gemini", "groq", ""]:
-            try:
-                if GEMINI_API_KEY:
-                    return _get_gemini_response(prompt, system_prompt)
-                else:
-                    raise Exception("Gemini key not set, falling back")
-            except Exception as e:
-                print(f"[LLM] Gemini failed: {e}. Falling back to local static response.")
-                # Fallthrough to local fallback
-
-        # Attempt Ollama if explicitly requested
-        if LLM_PROVIDER == "ollama":
-            try:
-                return _get_ollama_response(prompt, system_prompt)
-            except Exception as e:
-                print(f"[LLM] Ollama failed: {e}. Falling back to local static response.")
-                
-    except Exception as e:
-        print(f"[LLM ERROR] unexpected top-level error: {e}")
-
-    # Ultimate fallback safety net
+    # All providers exhausted
+    print("[LLM] All providers failed — using static fallback.")
     return _get_fallback_response(category)
 
 
+# ---------------------------------------------------------------------------
+# Provider implementations
+# ---------------------------------------------------------------------------
+
 def _get_groq_response(prompt, system_prompt):
-    """Get response from Groq API"""
+    """Get response from Groq API (OpenAI-compatible)."""
     if not GROQ_API_KEY:
         raise Exception("Groq API key not configured")
 
@@ -117,10 +154,10 @@ def _get_groq_response(prompt, system_prompt):
         "model": GROQ_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user",   "content": prompt}
         ],
-        "temperature": 0.9,  # More creative
-        "max_tokens": 200,
+        "temperature": 0.9,
+        "max_tokens":  200,
         "top_p": 1
     }
 
@@ -129,17 +166,76 @@ def _get_groq_response(prompt, system_prompt):
     return response.json()["choices"][0]["message"]["content"].strip()
 
 
+def _get_openrouter_response(prompt, system_prompt):
+    """
+    Get response from OpenRouter (OpenAI-compatible gateway).
+    Free models available — no quota issues with :free suffix models.
+    Full model list: https://openrouter.ai/models?q=free
+    """
+    if not OPENROUTER_API_KEY:
+        raise Exception("OpenRouter API key not configured")
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization":  f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type":   "application/json",
+        "HTTP-Referer":   "https://github.com/himanshujagtap/gesture-mouse",
+        "X-Title":        "Quantum Assistant",
+    }
+    data = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": prompt}
+        ],
+        "temperature": 0.9,
+        "max_tokens":  200,
+    }
+
+    response = requests.post(url, headers=headers, json=data, timeout=15)
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    if not content or not content.strip():
+        raise Exception("OpenRouter returned empty response")
+    return content.strip()
+
+
+def _get_gemini_response(prompt, system_prompt):
+    """Get response from Google Gemini."""
+    if not GEMINI_API_KEY:
+        raise Exception("Gemini API key not configured")
+
+    url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [{"parts": [{"text": f"{system_prompt}\n\n{prompt}"}]}],
+        "generationConfig": {"temperature": 0.9, "maxOutputTokens": 800}
+    }
+
+    response = requests.post(url, headers=headers, json=data, timeout=10)
+
+    if not response.ok:
+        status = response.status_code
+        if status == 404:
+            raise Exception("Gemini 404 — verify API key at https://aistudio.google.com/app/apikey")
+        elif status in (401, 403):
+            raise Exception("Gemini auth error — API key may be invalid or expired")
+        elif status == 429:
+            raise Exception("Gemini quota exhausted — will fall back to next provider")
+        else:
+            raise Exception(f"Gemini HTTP {status}: {response.text[:200]}")
+
+    return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
 def _get_ollama_response(prompt, system_prompt):
-    """Get response from local Ollama"""
+    """Get response from local Ollama instance."""
     url = "http://localhost:11434/api/generate"
     data = {
         "model": OLLAMA_MODEL,
         "prompt": f"{system_prompt}\n\nUser: {prompt}\nAssistant:",
         "stream": False,
-        "options": {
-            "temperature": 0.9,
-            "num_predict": 200
-        }
+        "options": {"temperature": 0.9, "num_predict": 200}
     }
 
     response = requests.post(url, json=data, timeout=30)
@@ -147,41 +243,12 @@ def _get_ollama_response(prompt, system_prompt):
     return response.json()["response"].strip()
 
 
-def _get_gemini_response(prompt, system_prompt):
-    """Get response from Google Gemini"""
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "":
-        raise Exception("Gemini API key not configured. Please set GEMINI_API_KEY in .env file")
-
-    # Use v1 API instead of v1beta for Gemini 1.5 models
-    url = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "contents": [{
-            "parts": [{
-                "text": f"{system_prompt}\n\n{prompt}"
-            }]
-        }],
-        "generationConfig": {
-            "temperature": 0.9,
-            "maxOutputTokens": 800
-        }
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        response.raise_for_status()
-        return response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 404:
-            raise Exception(f"Gemini API 404 Error. Please verify your API key is valid at https://makersuite.google.com/app/apikey")
-        elif e.response.status_code == 401 or e.response.status_code == 403:
-            raise Exception(f"Gemini API Authentication Error. Your API key may be invalid or expired.")
-        else:
-            raise Exception(f"Gemini API Error {e.response.status_code}: {e.response.text}")
-
+# ---------------------------------------------------------------------------
+# Static fallback (when all LLM providers fail or none are configured)
+# ---------------------------------------------------------------------------
 
 def _get_fallback_response(category):
-    """Comprehensive fallback responses when LLM fails or is not configured"""
+    """Comprehensive static fallback responses."""
     import random
 
     fallbacks = {
@@ -214,7 +281,6 @@ def _get_fallback_response(category):
             "A group of flamingos is called a flamboyance! Perfect name for such fabulous birds. 🦩",
             "The Eiffel Tower can be 15 cm taller during the summer due to thermal expansion! 🗼",
             "Sharks have been around longer than trees! They existed 400 million years ago, trees 350 million. 🦈",
-            "The Great Wall of China isn't visible from space with the naked eye, contrary to popular belief! 🧱",
             "A teaspoon of neutron star material would weigh about 6 billion tons! ⭐",
             "Cleopatra lived closer to the Moon landing than to the construction of the Great Pyramid! 🏛️",
             "There are more stars in the universe than grains of sand on all Earth's beaches! ✨"
@@ -229,7 +295,6 @@ def _get_fallback_response(category):
             "Everything you've ever wanted is on the other side of fear. - George Addair",
             "Believe in yourself. You are braver than you think, more talented than you know, and capable of more than you imagine. - Roy T. Bennett",
             "I learned that courage was not the absence of fear, but the triumph over it. - Nelson Mandela",
-            "There is only one way to avoid criticism: do nothing, say nothing, and be nothing. - Aristotle",
             "The best time to plant a tree was 20 years ago. The second best time is now. - Chinese Proverb",
             "Your time is limited, don't waste it living someone else's life. - Steve Jobs",
             "The only impossible journey is the one you never begin. - Tony Robbins",
@@ -261,12 +326,8 @@ def _get_fallback_response(category):
             "I'm not saying you're dumb, but you make Homer Simpson look like Einstein! 🍩",
             "You bring everyone so much joy... when you leave the room! 😂",
             "I'd explain it to you, but I left my crayons at home! 🖍️",
-            "You're proof that evolution can go in reverse! 🦧",
             "Somewhere out there is a tree working tirelessly to produce oxygen for you. Go apologize to it! 🌳",
             "I thought of you today. It reminded me to take out the trash! 🗑️",
-            "You're the reason God created the middle finger! (Just kidding!) 😜",
-            "If you were any more inbred, you'd be a sandwich! 🥪",
-            "Your secrets are safe with me. I wasn't even listening! 👂",
             "You're not lazy, you're just on energy-saving mode... permanently! 🔋",
             "I'd challenge you to a battle of wits, but I see you're unarmed! ⚔️"
         ],
@@ -282,7 +343,6 @@ def _get_fallback_response(category):
             "That's so sweet! I'm here whenever you need me! 💕",
             "You just made my day! Well, my processing cycle! 😄",
             "Thanks for being such a great human! You're the best! 🏆",
-            "Your appreciation fuels my AI heart! (Metaphorically speaking!) ❤️",
             "Right back at you! You're incredible! 🌈",
             "It's been a pleasure! You're a joy to assist! ✨",
             "Thank you for being you! Keep being amazing! 🦄"
@@ -335,7 +395,9 @@ def _get_fallback_response(category):
     return random.choice(responses)
 
 
-# Test function
+# ---------------------------------------------------------------------------
+# Test / smoke-test
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     print("Testing LLM Helper...")
     print("\n1. Joke:", get_creative_response("Tell me a joke", "joke"))

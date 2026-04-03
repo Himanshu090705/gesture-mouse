@@ -34,3 +34,7 @@ gesture_process = None
 
 # File search results — holds [(score, path, is_dir), ...] from last search
 file_search_results = []
+
+# Conversation log — list of (role, text) tuples for ALL interactions this session
+# role is "You" or "Quantum"; capped at 16 entries (8 exchanges)
+conversation_log = []

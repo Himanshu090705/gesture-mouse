@@ -64,6 +64,10 @@ while True:
 
     # For text input, skip wake word check; for voice input, require wake word
     if state.text_input_mode or 'quantum' in voice_data or 'proton' in voice_data:
+        # Log user input to conversation history (cap at 16)
+        state.conversation_log.append(("You", voice_data))
+        if len(state.conversation_log) > 16:
+            state.conversation_log.pop(0)
         try:
             respond(voice_data)
         except SystemExit:

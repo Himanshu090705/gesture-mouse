@@ -70,22 +70,28 @@ with sr.Microphone() as _source:
 # Public helpers
 # ---------------------------------------------------------------------------
 
+def _speak_async(spoken: str):
+    """Speak text in a background thread so the main loop is never blocked."""
+    if TTS_AVAILABLE and engine:
+        try:
+            engine.say(spoken)
+            engine.runAndWait()
+            return
+        except Exception:
+            pass
+    if IS_MAC:
+        os.system(f'say "{spoken}"')
+
+
 def reply(audio):
-    """Send a response to the UI and speak it aloud."""
+    """Send a response to the UI and speak it aloud (TTS runs async)."""
     spoken = _EMOJI_RE.sub('', audio).strip()
     import app  # deferred to avoid import-time circular dependency
     app.ChatBot.addAppMsg(audio)
     print(audio)
 
-    if TTS_AVAILABLE and engine:
-        try:
-            engine.say(spoken)
-            engine.runAndWait()
-        except Exception:
-            if IS_MAC:
-                os.system(f'say "{spoken}"')
-    elif IS_MAC:
-        os.system(f'say "{spoken}"')
+    from threading import Thread
+    Thread(target=_speak_async, args=(spoken,), daemon=True).start()
 
 
 def wish():

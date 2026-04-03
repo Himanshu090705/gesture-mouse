@@ -18,7 +18,7 @@ Controls (in the OpenCV window)
 Saved to:  custom_gestures/<name>.json
 """
 
-import os
+import 
 import sys
 import json
 import argparse
