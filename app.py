@@ -23,9 +23,11 @@ class ChatBot:
         print(f"Text mode: {mode}")
 
     def close_callback(route, websockets):
-        # if not websockets:
-        #     print('Bye!')
-        exit()
+        # Only exit when every browser window/tab has closed.
+        # Navigating between index.html and dashboard.html briefly
+        # drops one connection but the other stays alive — don't exit then.
+        if not websockets:
+            exit()
 
     @eel.expose
     def getUserInput(msg):
@@ -38,6 +40,7 @@ class ChatBot:
         commands = [
             'hello', 'time', 'date', 'search', 'location',
             'launch gesture recognition', 'stop gesture recognition',
+            'train gesture', 'add gesture', 'list custom gestures', 'delete gesture',
             'copy', 'paste', 'change name to', 'rename to', 'call yourself',
             'screenshot', 'scroll up', 'scroll down',
             'volume up', 'volume down', 'mute', 'unmute',
@@ -61,7 +64,33 @@ class ChatBot:
             'help', 'commands', 'what can you do',
             'sing', 'dance', 'tell me about yourself', 'about yourself',
             'good job', 'well done', 'great job', 'thank you',
-            'are you alive', 'are you real', 'what do you think about ai'
+            'are you alive', 'are you real', 'what do you think about ai',
+            'cleanup desktop', 'empty recycle bin', 'startup apps status', 'network speed test',
+            'confirm', 'cancel',
+            # Context-aware commands
+            'what app', 'current app', 'which app',
+            'run code', 'build project', 'run project',
+            'format code', 'format document',
+            'comment line', 'comment out', 'toggle comment',
+            'go to line', 'split editor',
+            'go back', 'go forward',
+            'next tab', 'previous tab',
+            'zoom in', 'zoom out',
+            'save file', 'save all',
+            'open terminal here', 'new terminal',
+            'find in files', 'global search'
+            'find file', 'find folder', 'find my', 'search for file', 'locate file',
+            'open file', 'open result',
+            'clipboard history', 'show clipboard', 'clipboard list',
+            'paste item', 'paste item 1', 'paste item 2', 'paste item 3',
+            'clear clipboard',
+            'show conversation history', 'conversation history', 'clear memory',
+            'forget conversation', 'reset memory', 'memory status',
+            'history search', 'search history',
+            'run last command', 'repeat last', 'run again',
+            'run history', 'run history 1', 'run history 2',
+            'confirm', 'cancel',
+            'clear', 'clear chat', 'clear screen',
         ]
 
         partial_lower = partial_input.lower().strip()
@@ -78,14 +107,57 @@ class ChatBot:
 
         return suggestions[:5]  # Return max 5 suggestions
     
+    @eel.expose
+    def getDashboardData():
+        """Serve live session + system stats to the dashboard page."""
+        try:
+            from quantum.stats import get_dashboard_data
+            return get_dashboard_data()
+        except Exception as e:
+            return {'error': str(e)}
+
+    @eel.expose
+    def getSettings():
+        """Return current quantum_config.json as a dict."""
+        try:
+            from quantum.config_manager import load
+            return load()
+        except Exception as e:
+            return {'error': str(e)}
+
+    @eel.expose
+    def saveSettings(data):
+        """Persist settings dict to quantum_config.json."""
+        try:
+            from quantum.config_manager import save
+            ok = save(data)
+            return {'ok': ok}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
     def close():
         ChatBot.started = False
     
     def addUserMsg(msg):
         eel.addUserMsg(msg)()
-    
+
     def addAppMsg(msg):
         eel.addAppMsg(msg)()
+        # Log to session conversation history
+        try:
+            import quantum.state as _state
+            _state.conversation_log.append(("Quantum", msg))
+            if len(_state.conversation_log) > 16:
+                _state.conversation_log.pop(0)
+        except Exception:
+            pass
+
+    def clearChat():
+        """Clear the chat canvas from Python (e.g. via voice command)."""
+        try:
+            eel.clearChat()()
+        except Exception:
+            pass
 
     def start():
         path = os.path.dirname(os.path.abspath(__file__))

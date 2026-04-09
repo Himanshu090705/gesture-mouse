@@ -6,7 +6,11 @@ Handles mouse control, clicking, scrolling, volume, and brightness.
 """
 
 import pyautogui
+import platform
+import subprocess
 from gesture_enums import Gest
+
+_SYSTEM = platform.system()  # 'Darwin', 'Windows', 'Linux'
 
 # Windows-specific imports (optional on macOS/Linux)
 WINDOWS_FEATURES_AVAILABLE = False
@@ -84,6 +88,12 @@ class Controller:
     # For incremental pinch control
     prev_pinch_x = None
     prev_pinch_y = None
+    # Cooldown counters to prevent too-rapid scroll/brightness changes
+    _scroll_cooldown = 0
+    _brightness_cooldown = 0
+    # Tunable settings (overridden by quantum_config.json at startup)
+    _scroll_speed = 3
+    _cursor_speed = 2.1
 
     @staticmethod
     def getpinchylv(hand_result):
@@ -100,45 +110,91 @@ class Controller:
     @staticmethod
     def changesystembrightness():
         """Incrementally adjusts system brightness based on pinch movement delta."""
-        if not WINDOWS_FEATURES_AVAILABLE:
-            return  # Gracefully skip on macOS/Linux
-        currentBrightnessLv = sbcontrol.get_brightness(display=0) / 100.0
-        # Use smaller increment for smoother control
-        currentBrightnessLv += Controller.pinchlv * 0.02
-        if currentBrightnessLv > 1.0:
-            currentBrightnessLv = 1.0
-        elif currentBrightnessLv < 0.0:
-            currentBrightnessLv = 0.0
-        sbcontrol.set_brightness(int(100 * currentBrightnessLv), display=0)
+        # Cooldown: only fire every 8 frames to prevent too-rapid changes
+        if Controller._brightness_cooldown > 0:
+            Controller._brightness_cooldown -= 1
+            return
+        Controller._brightness_cooldown = 8
+
+        if _SYSTEM == 'Darwin':
+            try:
+                # Try brightness CLI (brew install brightness) first
+                res = subprocess.run(
+                    ['brightness', '-l'],
+                    capture_output=True, text=True
+                )
+                output = res.stdout + res.stderr  # CLI prints to stderr on some versions
+                for line in output.splitlines():
+                    if 'brightness' in line:
+                        cur = float(line.split('brightness')[-1].strip())
+                        new_val = max(0.0, min(1.0, cur + Controller.pinchlv * 0.05))
+                        subprocess.run(['brightness', f'{new_val:.3f}'], capture_output=True)
+                        return
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+            # Fallback: brightness function keys (one press per cooldown cycle = slow steps)
+            try:
+                if Controller.pinchlv > 0:
+                    pyautogui.press('brightnessup')
+                else:
+                    pyautogui.press('brightnessdown')
+            except Exception:
+                pass
+        elif WINDOWS_FEATURES_AVAILABLE:
+            currentBrightnessLv = sbcontrol.get_brightness(display=0) / 100.0
+            currentBrightnessLv += Controller.pinchlv * 0.02
+            currentBrightnessLv = max(0.0, min(1.0, currentBrightnessLv))
+            sbcontrol.set_brightness(int(100 * currentBrightnessLv), display=0)
 
     @staticmethod
     def changesystemvolume():
         """Incrementally adjusts system volume based on pinch movement delta."""
-        if not WINDOWS_FEATURES_AVAILABLE:
-            return  # Gracefully skip on macOS/Linux
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
-        currentVolumeLv = volume.GetMasterVolumeLevelScalar()
-        # Use smaller increment for smoother control
-        currentVolumeLv += Controller.pinchlv * 0.02
-        if currentVolumeLv > 1.0:
-            currentVolumeLv = 1.0
-        elif currentVolumeLv < 0.0:
-            currentVolumeLv = 0.0
-        volume.SetMasterVolumeLevelScalar(currentVolumeLv, None)
+        if _SYSTEM == 'Darwin':
+            try:
+                # Get current volume (0-100)
+                res = subprocess.run(
+                    ['osascript', '-e', 'output volume of (get volume settings)'],
+                    capture_output=True, text=True
+                )
+                cur_vol = int(res.stdout.strip())
+                new_vol = max(0, min(100, cur_vol + int(Controller.pinchlv * 5)))
+                subprocess.run(
+                    ['osascript', '-e', f'set volume output volume {new_vol}'],
+                    capture_output=True
+                )
+            except Exception:
+                pass
+        elif WINDOWS_FEATURES_AVAILABLE:
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            volume = cast(interface, POINTER(IAudioEndpointVolume))
+            currentVolumeLv = volume.GetMasterVolumeLevelScalar()
+            currentVolumeLv += Controller.pinchlv * 0.02
+            currentVolumeLv = max(0.0, min(1.0, currentVolumeLv))
+            volume.SetMasterVolumeLevelScalar(currentVolumeLv, None)
 
     @staticmethod
     def scrollVertical():
-        """Scrolls on screen vertically."""
-        pyautogui.scroll(120 if Controller.pinchlv > 0.0 else -120)
+        """Scrolls on screen vertically — slow and smooth."""
+        if Controller._scroll_cooldown > 0:
+            Controller._scroll_cooldown -= 1
+            return
+        Controller._scroll_cooldown = 4
+        amount = Controller._scroll_speed if Controller.pinchlv > 0.0 else -Controller._scroll_speed
+        pyautogui.scroll(amount)
 
     @staticmethod
     def scrollHorizontal():
-        """Scrolls on screen horizontally."""
+        """Scrolls on screen horizontally — slow and smooth."""
+        if Controller._scroll_cooldown > 0:
+            Controller._scroll_cooldown -= 1
+            return
+        Controller._scroll_cooldown = 4
         pyautogui.keyDown('shift')
         pyautogui.keyDown('ctrl')
-        pyautogui.scroll(-120 if Controller.pinchlv > 0.0 else 120)
+        pyautogui.scroll(-Controller._scroll_speed if Controller.pinchlv > 0.0 else Controller._scroll_speed)
         pyautogui.keyUp('ctrl')
         pyautogui.keyUp('shift')
 
@@ -183,7 +239,7 @@ class Controller:
         elif distsq <= 900:
             ratio = 0.07 * (distsq ** (1/2))
         else:
-            ratio = 2.1
+            ratio = Controller._cursor_speed
 
         x, y = x_old + delta_x * ratio, y_old + delta_y * ratio
         return (x, y)
@@ -200,6 +256,9 @@ class Controller:
         Controller.prev_pinch_x = hand_result.landmark[8].x
         Controller.prev_pinch_y = hand_result.landmark[8].y
         Controller.pinchdirectionflag = None
+        # Reset cooldowns on new pinch
+        Controller._scroll_cooldown = 0
+        Controller._brightness_cooldown = 0
 
     @staticmethod
     def pinch_control(hand_result, controlHorizontal, controlVertical):
@@ -229,18 +288,18 @@ class Controller:
 
         # Determine direction if not set yet (first significant movement)
         if Controller.pinchdirectionflag is None:
-            if abs(delta_x) > 0.15 or abs(delta_y) > 0.15:
+            if abs(delta_x) > 0.05 or abs(delta_y) > 0.05:
                 Controller.pinchdirectionflag = abs(delta_x) > abs(delta_y)
 
         # Apply control based on direction
         if Controller.pinchdirectionflag is not None:
             if Controller.pinchdirectionflag:  # Horizontal
-                if abs(delta_x) > 0.05:  # Minimum threshold to avoid jitter
+                if abs(delta_x) > 0.02:  # Minimum threshold to avoid jitter
                     Controller.pinchlv = delta_x
                     controlHorizontal()
                     Controller.prev_pinch_x = current_x
             else:  # Vertical
-                if abs(delta_y) > 0.05:  # Minimum threshold to avoid jitter
+                if abs(delta_y) > 0.02:  # Minimum threshold to avoid jitter
                     Controller.pinchlv = delta_y
                     controlVertical()
                     Controller.prev_pinch_y = current_y
@@ -312,3 +371,14 @@ class Controller:
                 Controller.pinch_control_init(hand_result)
                 Controller.pinchmajorflag = True
             Controller.pinch_control(hand_result, Controller.changesystembrightness, Controller.changesystemvolume)
+
+
+# Apply quantum_config.json settings at import time
+try:
+    from quantum.config_manager import load as _load_cfg
+    _cfg = _load_cfg()
+    Controller.pinch_threshold = float(_cfg.get('pinch_threshold', 0.3))
+    Controller._scroll_speed   = int(_cfg.get('scroll_speed', 3))
+    Controller._cursor_speed   = float(_cfg.get('cursor_speed', 2.1))
+except Exception:
+    pass
